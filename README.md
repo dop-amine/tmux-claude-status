@@ -86,6 +86,27 @@ Then reload tmux (`tmux source-file ~/.tmux.conf`) and **restart your Claude Cod
 sessions** — hooks are snapshotted at session start, so running sessions won't
 pick them up. `/hooks` in each session also works.
 
+## Migrating from a hand-wired setup
+
+If you previously wired these hooks into `settings.json` by hand and are now
+switching to the plugin, **leave the old script path in place until every
+running session has been restarted.**
+
+Hooks are snapshotted when a session starts. Sessions already running still hold
+the old absolute path, so deleting that file makes every hook invocation fail
+silently — badges freeze at whatever state they were in, and nothing tells you.
+A stuck ❓ that never resolves after you answer is the tell.
+
+Keep a symlink at the old location until those sessions are gone:
+
+```sh
+ln -sfn /path/to/tmux-claude-status/bin/claude-status ~/.claude/hooks/tmux-claude-status.sh
+```
+
+The script accepts the older argument names (`clear`, `done`, `unset`) as
+aliases for exactly this reason, so sessions snapshotted at any point still
+drive the state machine correctly.
+
 ## Configuration
 
 All optional. Set before the plugin loads.
