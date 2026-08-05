@@ -124,6 +124,15 @@ tmux set-option -w -t :1 @claude_status question   # ❓ appears on window 1
 tmux set-option -w -t :1 -u @claude_status         # gone
 ```
 
+## Dogfooding notes
+
+Verified on the author's machine with **no badge hooks in `settings.json` at
+all** — everything driven by the plugin:
+
+- 🔄 → ⏳ → ✅ across a real background shell
+- 🔄 → ❓ → 🔄 → ✅ through a real `AskUserQuestion` dialog, which also proves
+  plugin `hooks.json` honours the `matcher` field that ❓ depends on
+
 ## Requirements
 
 - tmux ≥ 3.1 (needs the `#{==:}` and `#{&&:}` format operators)
