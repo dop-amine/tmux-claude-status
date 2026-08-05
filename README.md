@@ -83,8 +83,17 @@ there and you splice the fragment in yourself.
 ```
 
 Then reload tmux (`tmux source-file ~/.tmux.conf`) and **restart your Claude Code
-sessions** — hooks are snapshotted at session start, so running sessions won't
-pick them up. `/hooks` in each session also works.
+sessions**. Hooks are snapshotted at session start, and a restart is the only
+way a running session gets them:
+
+- `/hooks` does **not** reload. As of Claude Code 2.1.x it's a read-only viewer
+  ("To add or modify hooks, edit settings.json directly").
+- Enabling or installing the plugin does **not** propagate into running
+  sessions either.
+
+Both verified by starting a session with the plugin disabled, re-enabling it,
+running `/hooks`, and confirming the badge still never moved. `claude --resume`
+restarts the process while keeping the thread, so a restart costs nothing.
 
 ## Migrating from a hand-wired setup
 
