@@ -1,0 +1,7 @@
+{
+  "name": "tmux-claude-status",
+  "description": "Per-window tmux tab badges for Claude Code sessions: working, blocked on you, background shells running, or ready to read.",
+  "version": "0.1.0",
+  "author": { "name": "dop-amine" },
+  "homepage": "https://github.com/dop-amine/tmux-claude-status"
+}

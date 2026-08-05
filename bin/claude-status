@@ -1,0 +1,108 @@
+#!/bin/sh
+# tmux-claude-status — publish Claude Code session state as a per-window tmux option.
+#
+# This is the STATE half. It knows nothing about how the badge is drawn; it only
+# sets @claude_status on the window owning $TMUX_PANE. The render half lives in
+# claude-status.tmux (or any renderer that reads the same option).
+#
+# Invoked by Claude Code hooks:
+#   UserPromptSubmit -> prompt : a turn started            -> running
+#   Notification     -> ask    : blocked on the user       -> question
+#     (matched on notification_type: permission_prompt | elicitation_dialog |
+#      agent_needs_input. NOT idle_prompt — that means idle, not asking.)
+#   PreToolUse       -> ask    : AskUserQuestion is opening -> question
+#   PostToolUse      -> busy   : a tool completed, so any question was answered
+#   Stop             -> stop   : turn finished             -> shells | done
+#   SessionEnd       -> end    : session gone              -> cleared
+#
+# States: running | question | shells | done  (unset = idle)
+#
+# Why SessionEnd matters: running/question/shells deliberately survive window
+# switches, so if a session dies mid-turn nothing else would ever clear them.
+#
+# Exits 0 and does nothing outside tmux, so it's safe to wire unconditionally.
+[ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] || exit 0
+
+TMUX_BIN="${CLAUDE_STATUS_TMUX_BIN:-}"
+[ -n "$TMUX_BIN" ] || TMUX_BIN="/opt/homebrew/bin/tmux"   # macOS (Homebrew)
+[ -x "$TMUX_BIN" ] || TMUX_BIN="/usr/local/bin/tmux"      # macOS (Intel Homebrew)
+[ -x "$TMUX_BIN" ] || TMUX_BIN="/usr/bin/tmux"            # Linux
+[ -x "$TMUX_BIN" ] || TMUX_BIN="tmux"                     # fall back to PATH
+
+set_status()   { "$TMUX_BIN" set-option -w -t "$TMUX_PANE" @claude_status "$1" 2>/dev/null; }
+unset_status() { "$TMUX_BIN" set-option -w -t "$TMUX_PANE" -u @claude_status 2>/dev/null; }
+get_status()   { "$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_status}' 2>/dev/null; }
+
+# Live background shells belonging to THIS pane's claude process: direct
+# zsh/bash/sh children of claude, minus this hook's own shell (found by walking
+# our own ancestry). MCP servers (node/python) and caffeinate are long-lived but
+# don't match the shell-name filter, so they never pin a window to "shells".
+#
+# ps, not pgrep: pgrep -P returns nothing from inside the hook's sandboxed
+# execution context — silently, which reads exactly like "no background shells".
+bg_shell_count() {
+  pane_pid=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{pane_pid}' 2>/dev/null)
+  [ -n "$pane_pid" ] || { echo 0; return; }
+  case "$(ps -o comm= -p "$pane_pid" 2>/dev/null)" in
+    *claude) claude_pid=$pane_pid ;;
+    *) claude_pid=$(ps -eo pid,ppid,comm | awk -v pp="$pane_pid" '$2==pp && $3 ~ /claude$/ {print $1; exit}') ;;
+  esac
+  [ -n "$claude_pid" ] || { echo 0; return; }
+  anc=" $$ "; p=$$; i=0
+  while [ "$i" -lt 10 ]; do
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$p" ] || break
+    anc="$anc$p "; [ "$p" = "$claude_pid" ] && break; i=$((i+1))
+  done
+  n=0
+  for c in $(ps -eo pid,ppid,comm | awk -v cp="$claude_pid" '$2==cp && $3 ~ /\/(zsh|bash|sh)$|^(zsh|bash|sh)$/ {print $1}'); do
+    case "$anc" in *" $c "*) ;; *) n=$((n+1)) ;; esac
+  done
+  echo "$n"
+}
+
+case "${1:-}" in
+  prompt|clear)
+    set_status running
+    ;;
+  ask)
+    # Live state, not an unread-event flag: set it even on the active window so
+    # it stays accurate the moment you switch away from the dialog.
+    set_status question
+    ;;
+  busy)
+    # PostToolUse fires on every tool call, so bail on the first read unless
+    # there's actually a question to retire. Answering a permission prompt or an
+    # AskUserQuestion is always followed by a tool completing — that's the signal.
+    [ "$(get_status)" = question ] || exit 0
+    set_status running
+    ;;
+  stop|done)
+    # Set the badge even when this window is active. Being parked in a window is
+    # not the same as having read what landed in it: you look away, the turn
+    # ends, and with no badge there's nothing to draw you back. The renderer
+    # clears "done" when you LEAVE the window, which is the point at which
+    # you've genuinely had your chance.
+    if [ "$(bg_shell_count)" -gt 0 ]; then
+      set_status shells
+    else
+      set_status done
+    fi
+    ;;
+  end|unset)
+    unset_status
+    ;;
+  state)                       # debugging helper: print the current state
+    get_status; exit 0
+    ;;
+  *)
+    echo "usage: claude-status {prompt|ask|busy|stop|end|state}" >&2
+    exit 2
+    ;;
+esac
+
+# Force an immediate status-line redraw; tmux otherwise repaints on a ~10s tick,
+# which turns an instant badge into a "sometimes" badge.
+for c in $("$TMUX_BIN" list-clients -F '#{client_tty}' 2>/dev/null); do
+  "$TMUX_BIN" refresh-client -S -t "$c" 2>/dev/null
+done
+exit 0

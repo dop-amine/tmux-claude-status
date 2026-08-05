@@ -1,0 +1,14 @@
+{
+  "name": "tmux-claude-status",
+  "description": "Private marketplace hosting the tmux-claude-status plugin.",
+  "owner": { "name": "dop-amine" },
+  "plugins": [
+    {
+      "name": "tmux-claude-status",
+      "description": "Per-window tmux tab badges for Claude Code sessions: working, blocked on you, background shells running, or ready to read.",
+      "author": { "name": "dop-amine" },
+      "category": "productivity",
+      "source": "./claude-plugin"
+    }
+  ]
+}
