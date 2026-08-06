@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tmux-claude-status — know which Claude session needs you</title>
+<meta name="description" content="Per-window tmux tab badges for Claude Code sessions: working, blocked on you, background shells running, or ready to read.">
+<meta property="og:title" content="tmux-claude-status">
+<meta property="og:description" content="Per-window tmux tab badges for Claude Code sessions. The tab bar tells you which session needs you.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
+<style>
+  :root{
+    --bg:#080b0f;
+    --bg-2:#0e1319;
+    --bg-3:#141b23;
+    --stk:#1e2833;
+    --stk-2:#2b3743;
+    --tx:#e3ebf2;
+    --tx-2:#9dabb8;
+    --tx-3:#68757f;
+    --blue:#00afff;
+    --green:#56d364;
+    --amber:#e3a008;
+    --red:#ff6f61;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;} *{animation:none!important;transition:none!important;}}
+  body{
+    margin:0;background:var(--bg);color:var(--tx);
+    font-family:var(--sans);font-size:16px;line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:56rem;margin:0 auto;padding:0 1.4rem;}
+  a{color:var(--blue);text-underline-offset:2px;}
+  a:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:3px;}
+  code{font-family:var(--mono);font-size:.86em;}
+
+  /* ---------- top ---------- */
+  .top{border-bottom:1px solid var(--stk);}
+  .top .wrap{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding-top:1rem;padding-bottom:1rem;}
+  .brand{font-family:var(--mono);font-size:.92rem;font-weight:600;letter-spacing:-.01em;color:var(--tx);text-decoration:none;}
+  .brand .dim{color:var(--tx-3);}
+  .top nav{display:flex;gap:1.3rem;font-size:.88rem;}
+  .top nav a{color:var(--tx-2);text-decoration:none;}
+  .top nav a:hover{color:var(--tx);}
+
+  /* ---------- hero ---------- */
+  .hero{padding:4.5rem 0 3rem;}
+  h1{
+    font-size:clamp(2.1rem,5.5vw,3.4rem);line-height:1.06;letter-spacing:-.03em;
+    font-weight:700;margin:0 0 1rem;max-width:20ch;text-wrap:balance;
+  }
+  .lede{font-size:clamp(1.02rem,2vw,1.18rem);color:var(--tx-2);max-width:52ch;margin:0 0 2rem;}
+  .demo{
+    border:1px solid var(--stk);border-radius:9px;overflow:hidden;background:#0b0f14;
+    box-shadow:0 18px 50px -28px rgba(0,0,0,.9);
+  }
+  .demo img{display:block;width:100%;height:auto;}
+  .demo figcaption{
+    font-family:var(--mono);font-size:.72rem;color:var(--tx-3);
+    padding:.55rem .8rem;border-top:1px solid var(--stk);letter-spacing:.02em;
+  }
+  figure{margin:0;}
+  .cta{display:flex;flex-wrap:wrap;gap:.7rem;margin:2rem 0 0;}
+  .btn{
+    display:inline-block;font-family:var(--mono);font-size:.86rem;font-weight:600;
+    padding:.6rem 1.05rem;border-radius:6px;text-decoration:none;border:1px solid transparent;
+  }
+  .btn.primary{background:var(--blue);color:#04121a;}
+  .btn.primary:hover{filter:brightness(1.1);}
+  .btn.ghost{border-color:var(--stk-2);color:var(--tx);}
+  .btn.ghost:hover{border-color:var(--tx-3);background:var(--bg-2);}
+
+  /* ---------- sections ---------- */
+  section{padding:3.6rem 0;border-top:1px solid var(--stk);}
+  .eyebrow{
+    font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.11em;
+    color:var(--tx-3);margin:0 0 .6rem;
+  }
+  h2{font-size:clamp(1.4rem,3vw,1.85rem);line-height:1.2;letter-spacing:-.02em;font-weight:660;margin:0 0 .7rem;text-wrap:balance;}
+  h3{font-size:1.02rem;font-weight:640;margin:2rem 0 .4rem;}
+  p{margin:.75rem 0;color:var(--tx-2);max-width:62ch;}
+  p strong{color:var(--tx);font-weight:620;}
+  ul{padding-left:1.1rem;max-width:62ch;color:var(--tx-2);}
+  li{margin:.35rem 0;}
+  li::marker{color:var(--tx-3);}
+  li strong{color:var(--tx);font-weight:620;}
+
+  /* ---------- states ---------- */
+  .states{display:grid;gap:.55rem;margin:1.6rem 0 0;}
+  .state{
+    display:grid;grid-template-columns:2.6rem 7.5rem 1fr;align-items:baseline;gap:.9rem;
+    background:var(--bg-2);border:1px solid var(--stk);border-left-width:3px;border-radius:7px;
+    padding:.75rem .95rem;
+  }
+  .state .g{font-size:1.15rem;line-height:1;}
+  .state .k{font-family:var(--mono);font-size:.82rem;font-weight:600;color:var(--tx);}
+  .state .d{font-size:.92rem;color:var(--tx-2);}
+  .state.running{border-left-color:var(--blue);}
+  .state.question{border-left-color:var(--red);}
+  .state.shells{border-left-color:var(--amber);}
+  .state.done{border-left-color:var(--green);}
+  .state.idle{border-left-color:var(--stk-2);}
+  @media (max-width:640px){
+    .state{grid-template-columns:2.2rem 1fr;}
+    .state .d{grid-column:1/-1;}
+  }
+
+  /* ---------- code ---------- */
+  pre{
+    background:var(--bg-2);border:1px solid var(--stk);border-radius:7px;
+    padding:.85rem 1rem;overflow-x:auto;margin:1rem 0;
+    font-family:var(--mono);font-size:.83rem;line-height:1.6;color:var(--tx);
+  }
+  pre .c{color:var(--tx-3);}
+  pre .s{color:var(--green);}
+  pre .k{color:var(--blue);}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:1.6rem;margin-top:1.4rem;}
+  @media (max-width:720px){.cols{grid-template-columns:1fr;}}
+  .card{background:var(--bg-2);border:1px solid var(--stk);border-radius:8px;padding:1.1rem 1.2rem;}
+  .card h3{margin:0 0 .3rem;font-size:.95rem;}
+  .card p{font-size:.9rem;margin:.4rem 0;}
+  .card pre{margin:.7rem 0 .2rem;background:var(--bg-3);}
+
+  .note{
+    border-left:3px solid var(--stk-2);background:var(--bg-2);
+    padding:.8rem 1rem;border-radius:0 7px 7px 0;margin:1.3rem 0;font-size:.93rem;color:var(--tx-2);
+  }
+  .note strong{color:var(--tx);}
+
+  table{border-collapse:collapse;width:100%;font-size:.88rem;margin:1rem 0;}
+  .tw{overflow-x:auto;border:1px solid var(--stk);border-radius:8px;background:var(--bg-2);}
+  th,td{text-align:left;padding:.6rem .85rem;border-bottom:1px solid var(--stk);vertical-align:top;color:var(--tx-2);}
+  th{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--tx-3);background:var(--bg-3);white-space:nowrap;}
+  td code{color:var(--tx);}
+  tr:last-child td{border-bottom:0;}
+
+  footer{border-top:1px solid var(--stk);padding:2.4rem 0 3.5rem;}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:.6rem 1.4rem;align-items:center;justify-content:space-between;}
+  footer p{margin:0;font-size:.88rem;}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="wrap">
+    <a class="brand" href="./">tmux-claude-status<span class="dim">/</span></a>
+    <nav>
+      <a href="#states">States</a>
+      <a href="#install">Install</a>
+      <a href="#internals">Internals</a>
+      <a href="https://github.com/dop-amine/tmux-claude-status">GitHub</a>
+    </nav>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Know which Claude session needs you.</h1>
+    <p class="lede">
+      Run several Claude Code sessions across tmux windows and they all look
+      identical from the tab bar. This puts one badge on each tab, so a glance
+      tells you what's working, what's waiting on you, and what's ready to read.
+    </p>
+
+    <figure class="demo">
+      <img src="./demo.gif" alt="A tmux status bar with five tabs. Badges appear and change as sessions work, become blocked, and finish.">
+      <figcaption>Real tmux, real plugin — five windows changing state.</figcaption>
+    </figure>
+
+    <div class="cta">
+      <a class="btn primary" href="#install">Install</a>
+      <a class="btn ghost" href="https://github.com/dop-amine/tmux-claude-status">View source</a>
+      <a class="btn ghost" href="https://github.com/dop-amine/tmux-claude-status/blob/main/docs/hook-contract.md">Hook contract</a>
+    </div>
+  </div>
+</header>
+
+<section id="states">
+  <div class="wrap">
+    <p class="eyebrow">Four states</p>
+    <h2>Each tab says one thing</h2>
+    <p>
+      The distinction that matters most is the third one. A turn ending isn't the
+      same as the work being finished — Claude often ends a turn with a build or a
+      test suite still running in the background, and a tab that says
+      <em>ready</em> when it isn't will teach you to ignore the badges entirely.
+    </p>
+
+    <div class="states">
+      <div class="state idle">
+        <span class="g">·</span><span class="k">idle</span>
+        <span class="d">Nothing running, nothing unread</span>
+      </div>
+      <div class="state running">
+        <span class="g">🔄</span><span class="k">running</span>
+        <span class="d">Prompt in flight — Claude is working</span>
+      </div>
+      <div class="state question">
+        <span class="g">❓</span><span class="k">question</span>
+        <span class="d">Blocked on you: a permission prompt, a question, or an MCP dialog</span>
+      </div>
+      <div class="state shells">
+        <span class="g">⏳</span><span class="k">shells</span>
+        <span class="d">Turn finished, but background shells it started are still running</span>
+      </div>
+      <div class="state done">
+        <span class="g">✅</span><span class="k">done</span>
+        <span class="d">Turn finished, nothing running, ready to read</span>
+      </div>
+    </div>
+
+    <h3>Only the checkmark ever clears</h3>
+    <p>
+      🔄, ❓ and ⏳ describe live state. Looking at a window doesn't answer a
+      question or finish a build, so visiting a tab leaves them alone.
+    </p>
+    <p>
+      ✅ clears when you <strong>arrive</strong> at the window, and also when you
+      <strong>leave</strong> a window it appeared in — because that's the point at
+      which you've actually had your chance to read it. Sitting in a window when a
+      turn ends is not the same as having read the answer.
+    </p>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow">Install</p>
+    <h2>Two halves, joined by one tmux option</h2>
+    <p>
+      The state half sets <code>@claude_status</code> on the window that owns the
+      session. The render half turns that into a badge. They don't know about each
+      other, which is why either can be swapped.
+    </p>
+
+    <div class="cols">
+      <div class="card">
+        <h3>1. The renderer</h3>
+        <p>With TPM, in <code>~/.tmux.conf</code>:</p>
+<pre><span class="k">set</span> -g @plugin <span class="s">'dop-amine/tmux-claude-status'</span></pre>
+        <p>Or without a plugin manager:</p>
+<pre><span class="k">run-shell</span> ~/path/to/claude-status.tmux</pre>
+      </div>
+      <div class="card">
+        <h3>2. The hooks</h3>
+        <p>As a Claude Code plugin — no JSON editing, no absolute paths:</p>
+<pre>/plugin marketplace add \
+  dop-amine/tmux-claude-status
+/plugin install \
+  tmux-claude-status@tmux-claude-status</pre>
+        <p>Then restart your Claude sessions.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>Restarting matters.</strong> Hooks are snapshotted when a session
+      starts, and nothing reloads them — not <code>/hooks</code>, which is a
+      read-only viewer, and not installing the plugin.
+      <code>claude --resume</code> restarts the process while keeping the thread.
+    </div>
+
+    <h3>Using "Oh my tmux!"?</h3>
+    <p>
+      gpakosz rebuilds the status formats after sourcing your overrides, so it
+      needs one extra step — the plugin publishes a fragment you splice in
+      yourself. Both format variables need it, including the
+      <code>_current_</code> one for the selected tab.
+      <a href="https://github.com/dop-amine/tmux-claude-status/blob/main/docs/gpakosz.md">Setup guide →</a>
+    </p>
+
+    <h3>Configuration</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Option</th><th>Default</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>@claude_badge_running</code></td><td><code>' 🔄 '</code></td><td rowspan="4">The glyph for each state. Swap for single-width characters if emoji clip in your terminal.</td></tr>
+          <tr><td><code>@claude_badge_question</code></td><td><code>' ❓ '</code></td></tr>
+          <tr><td><code>@claude_badge_shells</code></td><td><code>' ⏳ '</code></td></tr>
+          <tr><td><code>@claude_badge_done</code></td><td><code>' ✅ '</code></td></tr>
+          <tr><td><code>@claude_badge_auto_append</code></td><td><code>on</code></td><td>Append the badge to both window status formats automatically.</td></tr>
+          <tr><td><code>@claude_badge_clear_on_visit</code></td><td><code>1</code></td><td><code>0</code> makes ✅ persist until your next prompt instead.</td></tr>
+          <tr><td><code>@claude_badge_toggle_key</code></td><td><em>unset</em></td><td>Bind a prefix key to flip the ✅ lifecycle at runtime.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Requires tmux 3.1+ and Claude Code 2.1.x. No dependencies — POSIX shell and tmux.</p>
+  </div>
+</section>
+
+<section id="internals">
+  <div class="wrap">
+    <p class="eyebrow">Internals</p>
+    <h2>Most of what this relies on isn't documented</h2>
+    <p>
+      The behaviour underneath was found by reading strings out of the Claude Code
+      binary and running controlled experiments. It's written down in the repo, with
+      the method for each claim, so it can be re-checked when a release changes
+      something.
+    </p>
+
+    <ul>
+      <li><strong>Notification types.</strong> <code>Notification</code> carries a <code>notification_type</code>; only three of its eight values mean "blocked on the user". <code>idle_prompt</code> is deliberately excluded — it fires when Claude is merely idle, which would put ❓ on every finished window.</li>
+      <li><strong>Plugin matchers work.</strong> A plugin's <code>hooks.json</code> honours <code>matcher</code>, which is what makes ❓ possible at all. Verified by installing the plugin as the only source of hooks and driving a real question dialog.</li>
+      <li><strong>Hooks are snapshotted.</strong> Nothing reloads them into a live session. Changing a hook's path leaves running sessions invoking the old one, and a missing hook script fails <em>silently</em> — the badge just freezes.</li>
+      <li><strong><code>pgrep</code> doesn't work in a hook.</strong> <code>pgrep -P</code> returns nothing from inside a hook's execution context. Not an error — an empty result, which reads exactly like "no background shells" and produces a badge that's confidently wrong. <code>ps</code> works.</li>
+      <li><strong>⏳ resolves without polling.</strong> When a tracked background shell exits, Claude Code wakes the session for a completion turn, which re-evaluates the state. No timer, no watcher.</li>
+    </ul>
+
+    <h3>The tmux bug worth stealing</h3>
+    <p>
+      Clearing the badge when you visit a tab looks like a one-liner with
+      <code>after-select-window</code>. It never fires. That's a <em>command</em>
+      hook, and clicking a tab in the status bar runs <code>switch-client</code>,
+      not <code>select-window</code>. The fix is the
+      <code>session-window-changed</code> <em>event</em> hook.
+    </p>
+    <div class="note">
+      It passed testing, too — the test drove <code>select-window</code> directly,
+      which is the one path real usage never takes. Testing a UI behaviour by
+      invoking the command you <em>assume</em> it runs only confirms your assumption
+      back to you. The test suite now asserts on what a tab actually renders.
+    </div>
+
+    <div class="cta">
+      <a class="btn ghost" href="https://github.com/dop-amine/tmux-claude-status/blob/main/docs/hook-contract.md">Read the hook contract →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>MIT licensed · Built by <a href="https://dop-amine.com">Amine</a></p>
+    <p><a href="https://github.com/dop-amine/tmux-claude-status">github.com/dop-amine/tmux-claude-status</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
