@@ -71,6 +71,14 @@ there and you splice the fragment in yourself.
 /plugin install tmux-claude-status@tmux-claude-status
 ```
 
+The same works headless via the CLI — handy for dotfiles scripts and
+provisioning:
+
+```sh
+claude plugin marketplace add /path/to/tmux-claude-status
+claude plugin install tmux-claude-status@tmux-claude-status
+```
+
 **Or by hand** in `~/.claude/settings.json`, substituting your real path:
 
 ```json
@@ -86,31 +94,48 @@ there and you splice the fragment in yourself.
 }
 ```
 
-Then reload tmux (`tmux source-file ~/.tmux.conf`) and **restart your Claude Code
-sessions**. Hooks are snapshotted at session start, and a restart is the only
-way a running session gets them:
+Then reload tmux (`tmux source-file ~/.tmux.conf`).
 
-- `/hooks` does **not** reload. As of Claude Code 2.1.x it's a read-only viewer
-  ("To add or modify hooks, edit settings.json directly").
-- Enabling or installing the plugin does **not** propagate into running
-  sessions either.
+Whether running sessions pick the hooks up depends on which route you took —
+the two routes behave differently (verified behaviourally on 2.1.220; see
+[docs/hook-contract.md](docs/hook-contract.md) for the experiments):
 
-Both verified by starting a session with the plugin disabled, re-enabling it,
-running `/hooks`, and confirming the badge still never moved. `claude --resume`
-restarts the process while keeping the thread, so a restart costs nothing.
+- **Hand-wired `settings.json` hooks hot-reload.** Running sessions re-read
+  `settings.json` when it changes; additions *and* removals take effect on the
+  session's very next turn, no restart needed.
+- **Plugin hooks do not propagate into running sessions.** Installing or
+  enabling the plugin only affects sessions started afterwards — restart the
+  rest (`claude --resume` restarts the process while keeping the thread, so it
+  costs nothing).
+- **`/hooks` proves neither.** It's a read-only viewer that re-reads
+  `settings.json` live and doesn't list plugin hooks at all — it tells you
+  what's in the file, not what a session is executing.
+
+One startup edge: plugin hooks register **asynchronously** after launch. A
+prompt submitted within the first few seconds of a brand-new session can run
+before they're active; from the next turn on they're reliable.
 
 ## Migrating from a hand-wired setup
 
 If you previously wired these hooks into `settings.json` by hand and are now
-switching to the plugin, **leave the old script path in place until every
-running session has been restarted.**
+switching to the plugin, two verified facts shape the order of operations:
+settings hooks **hot-reload** into running sessions, and plugin hooks
+**don't**. So the moment you delete the hand-wired entries, badges go dark in
+every running session — nothing errors, they just stop moving — and stay dark
+until each session restarts into the plugin's hooks.
 
-Hooks are snapshotted when a session starts. Sessions already running still hold
-the old absolute path, so deleting that file makes every hook invocation fail
-silently — badges freeze at whatever state they were in, and nothing tells you.
-A stuck ❓ that never resolves after you answer is the tell.
+The least-surprise sequence:
 
-Keep a symlink at the old location until those sessions are gone:
+1. Install the plugin (above).
+2. Remove the hand-wired hook entries from `settings.json`.
+3. Restart each running session promptly — `claude --resume` keeps the thread.
+
+Separately, a missing hook **script** fails silently: any session still
+invoking the old absolute path freezes badges at whatever state they held, and
+a stuck ❓ that never resolves after you answer is the tell. That bites on any
+version where hooks are snapshotted at session start, and it's cheap to
+prevent — keep a symlink at the old location until every long-running session
+is gone:
 
 ```sh
 ln -sfn /path/to/tmux-claude-status/bin/claude-status ~/.claude/hooks/tmux-claude-status.sh
