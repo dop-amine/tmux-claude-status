@@ -1,11 +1,13 @@
 # tmux-claude-status
 
+![tmux-claude-status in action](docs/demo.gif)
+
 Per-window tmux tab badges for Claude Code sessions. When you're running several
 sessions across tmux windows, the tab bar tells you which one needs you.
 
 ```
- ❐ 0   1 Billing ✅   2 Review 🔄   3 Flightplan   4 Max ⏳   5 Wiki ❓
-                ↑ ready to read    ↑ working       ↑ shells   ↑ waiting on you
+ ❐ 0   1 api ✅   2 review 🔄   3 docs   4 deploy ⏳   5 infra ❓
+              ↑ ready      ↑ working      ↑ shells    ↑ waiting on you
 ```
 
 | Badge | State | Meaning |
@@ -156,8 +158,7 @@ tmux set-option -w -t :1 -u @claude_status         # gone
 
 ## Dogfooding notes
 
-Verified on the author's machine with **no badge hooks in `settings.json` at
-all** — everything driven by the plugin:
+Verified with **no badge hooks in `settings.json` at all** — everything driven by the plugin:
 
 - 🔄 → ⏳ → ✅ across a real background shell
 - 🔄 → ❓ → 🔄 → ✅ through a real `AskUserQuestion` dialog, which also proves
@@ -187,5 +188,17 @@ all** — everything driven by the plugin:
   question could in principle flip ❓ back to 🔄 early. Not observed in practice,
   since `AskUserQuestion` blocks the turn.
 
-See **[docs/extras.md](docs/extras.md)** for unrelated terminal fixes found while
-building this — bell silencing, and two ways a tmux client appears frozen.
+## Further reading
+
+- **[docs/hook-contract.md](docs/hook-contract.md)** — the Claude Code hook behaviour
+  this depends on, most of which isn't documented anywhere. Written down so it can be
+  re-verified when Claude Code changes.
+- **[docs/gpakosz.md](docs/gpakosz.md)** — setup for "Oh my tmux!" users.
+- **[docs/extras.md](docs/extras.md)** — unrelated terminal fixes found while building
+  this: bell silencing, and two ways a tmux client appears frozen.
+
+## Author
+
+Built by Amine — [dop-amine.com](https://dop-amine.com)
+
+MIT licensed. Issues and PRs welcome.
