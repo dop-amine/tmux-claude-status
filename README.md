@@ -1,5 +1,7 @@
 # tmux-claude-status
 
+**[dop-amine.github.io/tmux-claude-status](https://dop-amine.github.io/tmux-claude-status/)**
+
 ![tmux-claude-status in action](docs/demo.gif)
 
 Per-window tmux tab badges for Claude Code sessions. When you're running several
