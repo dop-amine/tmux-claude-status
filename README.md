@@ -1,6 +1,6 @@
 # tmux-claude-status
 
-**[dop-amine.github.io/tmux-claude-status](https://dop-amine.github.io/tmux-claude-status/)**
+**[dop-amine.github.io/tmux-claude-status](https://dop-amine.github.io/tmux-claude-status/)** · **[write-up](https://dop-amine.com/blog/claude-code-tmux-badges)**
 
 ![tmux-claude-status in action](docs/demo.gif)
 
@@ -202,5 +202,8 @@ Verified with **no badge hooks in `settings.json` at all** — everything driven
 ## Author
 
 Built by Amine — [dop-amine.com](https://dop-amine.com)
+
+The full story of building it, including three bugs that each passed a green test,
+is written up at [dop-amine.com/blog/claude-code-tmux-badges](https://dop-amine.com/blog/claude-code-tmux-badges).
 
 MIT licensed. Issues and PRs welcome.
