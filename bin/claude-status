@@ -1,26 +1,39 @@
 #!/bin/sh
-# tmux-claude-status — publish Claude Code session state as a per-window tmux option.
+# tmux-claude-status — publish Claude Code session state as tmux options.
 #
-# This is the STATE half. It knows nothing about how the badge is drawn; it only
-# sets @claude_status on the window owning $TMUX_PANE. The render half lives in
-# claude-status.tmux (or any renderer that reads the same option).
+# This is the STATE half. It knows nothing about how the badge is drawn.
+#
+# State is stored PER PANE in @claude_pane_status, then aggregated to the window
+# in @claude_status for the renderer. Two Claude sessions in two panes of one
+# window therefore no longer overwrite each other; the window shows whichever
+# pane is most in need of attention.
 #
 # Invoked by Claude Code hooks:
-#   UserPromptSubmit -> prompt : a turn started            -> running
-#   Notification     -> ask    : blocked on the user       -> question
-#     (matched on notification_type: permission_prompt | elicitation_dialog |
-#      agent_needs_input. NOT idle_prompt — that means idle, not asking.)
-#   PreToolUse       -> ask    : AskUserQuestion is opening -> question
-#   PostToolUse      -> busy   : a tool completed, so any question was answered
-#   Stop             -> stop   : turn finished             -> shells | done
-#   SessionEnd       -> end    : session gone              -> cleared
+#   UserPromptSubmit    -> prompt      : a turn started              -> running
+#   Notification        -> ask         : blocked on the user         -> question
+#   PreToolUse          -> ask         : AskUserQuestion is opening   -> question
+#   PostToolUse         -> busy        : a tool completed            -> retires question
+#   PostToolUseFailure  -> busy        : a tool failed               -> retires question
+#   Stop                -> stop        : turn finished               -> shells | done
+#   StopFailure         -> stop        : turn died (API error etc.)  -> shells | done
+#   SubagentStart       -> agent-start : a background agent began
+#   SubagentStop        -> agent-stop  : a background agent finished
+#   SessionStart        -> start       : new session                 -> repair this pane
+#   SessionEnd          -> end         : session gone                -> clear this pane
 #
-# States: running | question | shells | done  (unset = idle)
-#
-# Why SessionEnd matters: running/question/shells deliberately survive window
-# switches, so if a session dies mid-turn nothing else would ever clear them.
+# States: running | question | shells | done   (unset = idle)
 #
 # Exits 0 and does nothing outside tmux, so it's safe to wire unconditionally.
+# Argument validation happens BEFORE that guard, so a typo is caught everywhere.
+
+case "${1:-}" in
+  prompt|clear|ask|busy|stop|done|end|unset|start|agent-start|agent-stop|state) ;;
+  *)
+    echo "usage: claude-status {prompt|ask|busy|stop|end|start|agent-start|agent-stop|state}" >&2
+    exit 2
+    ;;
+esac
+
 [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] || exit 0
 
 TMUX_BIN="${CLAUDE_STATUS_TMUX_BIN:-}"
@@ -29,17 +42,28 @@ TMUX_BIN="${CLAUDE_STATUS_TMUX_BIN:-}"
 [ -x "$TMUX_BIN" ] || TMUX_BIN="/usr/bin/tmux"            # Linux
 [ -x "$TMUX_BIN" ] || TMUX_BIN="tmux"                     # fall back to PATH
 
-set_status()   { "$TMUX_BIN" set-option -w -t "$TMUX_PANE" @claude_status "$1" 2>/dev/null; }
-unset_status() { "$TMUX_BIN" set-option -w -t "$TMUX_PANE" -u @claude_status 2>/dev/null; }
-get_status()   { "$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_status}' 2>/dev/null; }
+# ---------------------------------------------------------------- pane state --
+pane_set()   { "$TMUX_BIN" set-option -p -t "$TMUX_PANE" @claude_pane_status "$1" 2>/dev/null; }
+pane_unset() { "$TMUX_BIN" set-option -p -t "$TMUX_PANE" -u @claude_pane_status 2>/dev/null; }
+pane_get()   { "$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_pane_status}' 2>/dev/null; }
 
-# Live background shells belonging to THIS pane's claude process: direct
-# zsh/bash/sh children of claude, minus this hook's own shell (found by walking
-# our own ancestry). MCP servers (node/python) and caffeinate are long-lived but
-# don't match the shell-name filter, so they never pin a window to "shells".
+# --------------------------------------------------------------- agent count --
+# Background agents run INSIDE the claude process, so they have no child process
+# for bg_shell_count to find. They're tracked with a counter instead, reset by
+# SessionStart so a crash mid-agent can't leave it stuck above zero forever.
+agents_get() {
+  n=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_agents}' 2>/dev/null)
+  case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
+}
+agents_set() { "$TMUX_BIN" set-option -p -t "$TMUX_PANE" @claude_agents "$1" 2>/dev/null; }
+
+# --------------------------------------------------------- background shells --
+# Direct zsh/bash/sh children of THIS pane's claude process, minus this hook's
+# own shell (found by walking our own ancestry). MCP servers (node/python) and
+# caffeinate are long-lived but don't match the shell-name filter.
 #
-# ps, not pgrep: pgrep -P returns nothing from inside the hook's sandboxed
-# execution context — silently, which reads exactly like "no background shells".
+# ps, not pgrep: pgrep -P returns nothing from inside a hook's execution
+# context — silently, which reads exactly like "no background shells".
 bg_shell_count() {
   pane_pid=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{pane_pid}' 2>/dev/null)
   [ -n "$pane_pid" ] || { echo 0; return; }
@@ -60,49 +84,108 @@ bg_shell_count() {
   echo "$n"
 }
 
-case "${1:-}" in
+# Is anything still working for this pane after the turn ended?
+still_working() {
+  [ "$(bg_shell_count)" -gt 0 ] && return 0
+  [ "$(agents_get)" -gt 0 ] && return 0
+  return 1
+}
+
+# ------------------------------------------------------------- aggregation ---
+# Window badge = the pane most in need of attention.
+#   question (needs you) > done (ready to read) > running > shells
+rank() {
+  case "$1" in
+    question) echo 4 ;;
+    done)     echo 3 ;;
+    running)  echo 2 ;;
+    shells)   echo 1 ;;
+    *)        echo 0 ;;
+  esac
+}
+
+ack_get()   { "$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_ack}' 2>/dev/null; }
+ack_clear() { "$TMUX_BIN" set-option -w -t "$TMUX_PANE" -u @claude_ack 2>/dev/null; }
+
+# Recompute the window option from every pane in this pane's window.
+#
+# @claude_ack is set by the renderer's visit hook. While it's set, already-seen
+# "done" states are suppressed, so visiting a window can't be undone by an
+# unrelated pane later writing its own state. A fresh "done" clears the ack.
+recompute() {
+  acked=$(ack_get)
+  best=""; best_rank=0
+  for s in $("$TMUX_BIN" list-panes -t "$TMUX_PANE" -F '#{@claude_pane_status}' 2>/dev/null); do
+    [ "$s" = done ] && [ -n "$acked" ] && continue
+    r=$(rank "$s")
+    if [ "$r" -gt "$best_rank" ]; then best_rank=$r; best=$s; fi
+  done
+  if [ -z "$best" ]; then
+    "$TMUX_BIN" set-option -w -t "$TMUX_PANE" -u @claude_status 2>/dev/null
+  else
+    "$TMUX_BIN" set-option -w -t "$TMUX_PANE" @claude_status "$best" 2>/dev/null
+  fi
+}
+
+redraw() {
+  for c in $("$TMUX_BIN" list-clients -F '#{client_tty}' 2>/dev/null); do
+    "$TMUX_BIN" refresh-client -S -t "$c" 2>/dev/null
+  done
+}
+
+case "$1" in
   prompt|clear)
-    set_status running
+    pane_set running
     ;;
   ask)
     # Live state, not an unread-event flag: set it even on the active window so
     # it stays accurate the moment you switch away from the dialog.
-    set_status question
+    pane_set question
     ;;
   busy)
     # PostToolUse fires on every tool call, so bail on the first read unless
-    # there's actually a question to retire. Answering a permission prompt or an
-    # AskUserQuestion is always followed by a tool completing — that's the signal.
-    [ "$(get_status)" = question ] || exit 0
-    set_status running
+    # there's actually a question to retire.
+    [ "$(pane_get)" = question ] || exit 0
+    pane_set running
     ;;
   stop|done)
     # Set the badge even when this window is active. Being parked in a window is
-    # not the same as having read what landed in it: you look away, the turn
-    # ends, and with no badge there's nothing to draw you back. The renderer
-    # clears "done" when you LEAVE the window, which is the point at which
-    # you've genuinely had your chance.
-    if [ "$(bg_shell_count)" -gt 0 ]; then
-      set_status shells
+    # not the same as having read what landed in it.
+    if still_working; then
+      pane_set shells
     else
-      set_status done
+      pane_set done
+      ack_clear          # a fresh answer un-acknowledges the window
     fi
     ;;
+  agent-start)
+    agents_set $(( $(agents_get) + 1 ))
+    ;;
+  agent-stop)
+    n=$(agents_get); [ "$n" -gt 0 ] && n=$((n - 1))
+    agents_set "$n"
+    # The turn already ended, so nothing else will re-evaluate: promote ⏳ to ✅
+    # here once the last agent is gone and no shells remain.
+    if [ "$(pane_get)" = shells ] && ! still_working; then
+      pane_set done
+      ack_clear
+    fi
+    ;;
+  start)
+    # A new session owns this pane. Clear whatever the previous one left behind
+    # after an unclean exit — and only this pane, so a sibling Claude keeps its.
+    pane_unset
+    agents_set 0
+    ;;
   end|unset)
-    unset_status
+    pane_unset
+    agents_set 0
     ;;
-  state)                       # debugging helper: print the current state
-    get_status; exit 0
-    ;;
-  *)
-    echo "usage: claude-status {prompt|ask|busy|stop|end|state}" >&2
-    exit 2
+  state)
+    pane_get; exit 0
     ;;
 esac
 
-# Force an immediate status-line redraw; tmux otherwise repaints on a ~10s tick,
-# which turns an instant badge into a "sometimes" badge.
-for c in $("$TMUX_BIN" list-clients -F '#{client_tty}' 2>/dev/null); do
-  "$TMUX_BIN" refresh-client -S -t "$c" 2>/dev/null
-done
+recompute
+redraw
 exit 0

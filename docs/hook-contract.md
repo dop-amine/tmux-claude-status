@@ -201,6 +201,30 @@ executable, not a `node` wrapper, so the same name filter works on both.
 
 ---
 
+## Background *agents* have no process to find
+
+`bg_shell_count` walks the process tree, which finds background **shells** and
+misses background **agents** entirely — an agent runs inside the `claude`
+process, so there is no child to see. A window with an agent working for minutes
+reported ✅ "nothing running, ready to read".
+
+There's no field in the `Stop` payload for pending agents, so they're counted
+instead: `SubagentStart` increments a per-pane counter, `SubagentStop`
+decrements it, and `stop` reports ⏳ while it's above zero. `SessionStart`
+resets it, which is what stops a crash mid-agent from stranding the count above
+zero forever.
+
+`agent_needs_input` is already in the `Notification` matcher, so an agent that
+blocks on a question surfaces as ❓ rather than silently.
+
+## Failure events are separate events
+
+`PostToolUse` does not fire when a tool fails, and `Stop` does not fire when a
+turn dies on an API error — those are `PostToolUseFailure` and `StopFailure`.
+Wiring only the success events leaves ❓ stuck after a failed tool, and 🔄 stuck
+forever after an API error. Both are wired to the same handlers as their
+success counterparts.
+
 ## Background work resolves itself without polling
 
 When a tracked background shell exits, Claude Code wakes the session for a
