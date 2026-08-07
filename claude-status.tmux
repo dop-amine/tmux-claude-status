@@ -26,10 +26,13 @@ opt() {  # opt <name> <default>
 # your terminal can disagree by a cell, which lets a powerline separator clip
 # the glyph. Override with single-width glyphs if yours still clips, e.g.
 #   set -g @claude_badge_done ' #[fg=#27ba09]✔#[none]'
-RUNNING="$(opt @claude_badge_running  ' 🔄 ')"
-QUESTION="$(opt @claude_badge_question ' ❓ ')"
-SHELLS="$(opt @claude_badge_shells   ' ⏳ ')"
-DONE="$(opt @claude_badge_done      ' ✅ ')"
+# tmux splits #{?cond,a,b} on commas, so a value like '#[fg=red,bg=black]Q'
+# would be truncated at the first one. '#,' is the literal-comma escape.
+esc() { printf '%s' "${1//,/#,}"; }
+RUNNING="$(esc "$(opt @claude_badge_running  ' 🔄 ')")"
+QUESTION="$(esc "$(opt @claude_badge_question ' ❓ ')")"
+SHELLS="$(esc "$(opt @claude_badge_shells   ' ⏳ ')")"
+DONE="$(esc "$(opt @claude_badge_done      ' ✅ ')")"
 
 FMT="#{?#{==:#{@claude_status},running},${RUNNING},"
 FMT+="#{?#{==:#{@claude_status},question},${QUESTION},"
@@ -71,11 +74,11 @@ fi
 #   previous ('!') — it turned ✅ while you were there and you've now left
 tmux set -gq @claude_badge_clear_on_visit "$(opt @claude_badge_clear_on_visit 1)"
 COND='#{&&:#{@claude_badge_clear_on_visit},#{==:#{@claude_status},done}}'
-CURRENT_WINDOW_CLEAR_ACTION='set-option -w -u @claude_status'
-PREVIOUS_WINDOW_CLEAR_ACTION='set-option -w -t ! -u @claude_status'
+CURRENT_WINDOW_CLEAR_ACTION='set-option -w @claude_ack 1 ; set-option -w -u @claude_status'
+PREVIOUS_WINDOW_CLEAR_ACTION='set-option -w -t ! @claude_ack 1 ; set-option -w -t ! -u @claude_status'
 REGISTERED_HOOKS="$(tmux show-hooks -g 2>/dev/null || true)"
 
-has_clear_hook() {  # has_clear_hook <clear action>
+has_clear_hook() {  # has_clear_hook <stable clear substring>
   local action="$1" hook
   while IFS= read -r hook; do
     case "$hook" in
@@ -86,9 +89,12 @@ has_clear_hook() {  # has_clear_hook <clear action>
 }
 
 # Append only when absent. Hook arrays are shared with every plugin and user.
-has_clear_hook "$CURRENT_WINDOW_CLEAR_ACTION" ||
+# Match on the clear itself, not the whole action: earlier releases wrote a
+# shorter action, and a release that changes it must still recognise its own
+# older handlers or every reload appends another copy.
+has_clear_hook 'set-option -w -u @claude_status' ||
   tmux set-hook -ag session-window-changed "if -F \"$COND\" '$CURRENT_WINDOW_CLEAR_ACTION'"
-has_clear_hook "$PREVIOUS_WINDOW_CLEAR_ACTION" ||
+has_clear_hook 'set-option -w -t ! -u @claude_status' ||
   tmux set-hook -ag session-window-changed "if -F -t '!' \"$COND\" '$PREVIOUS_WINDOW_CLEAR_ACTION'"
 
 # --- optional toggle key ----------------------------------------------------

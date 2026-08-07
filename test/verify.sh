@@ -132,11 +132,107 @@ set_state shells; hook busy
 is "busy leaves shells alone" "$(state)" shells
 hook end;    is "end clears" "$(state)" ""
 
+echo "== commas in custom badge values (#8) =="
+CSOCK="claude-status-comma-$$"
+CTM=("$TMUX_BIN" -L "$CSOCK" -f /dev/null)
+"${CTM[@]}" new-session -d -s c -n w1
+"${CTM[@]}" set -g @claude_badge_done '#[fg=red,bg=black]Q'
+"${CTM[@]}" run-shell "$ROOT/claude-status.tmux"; sleep 0.4
+"${CTM[@]}" set -w -t c:w1 @claude_status done
+contains "multi-attribute style survives the conditional" \
+  "$("${CTM[@]}" display-message -p -t c:w1 '#{E:window-status-format}')" '#[fg=red,bg=black]Q'
+"${CTM[@]}" kill-server 2>/dev/null
+
+echo "== stop and background-shell detection (#3) =="
+# Build a real process tree. Copies of system binaries won't execute on macOS
+# (the copy fails signature validation), but a symlink does — and ps reports the
+# symlink's own path, which is what the name filter matches on.
+FAKE=$(mktemp -d)
+ln -s /bin/sleep "$FAKE/claude"; ln -s /bin/sh "$FAKE/sh_claude"; ln -s /bin/sh "$FAKE/zsh"
+"${TM[@]}" new-window -d -t t: -n proc "$FAKE/claude 30"
+sleep 1
+PROCPANE=$("${TM[@]}" list-panes -t t:proc -F '#{pane_id}')
+runhook() { TMUX="$("${TM[@]}" display-message -p '#{socket_path}'),0,0" TMUX_PANE="$1" \
+            CLAUDE_STATUS_TMUX_BIN="$TMUX_BIN" "$ROOT/bin/claude-status" "$2" >/dev/null 2>&1; }
+runhook "$PROCPANE" stop
+is "stop with no shell children -> done" \
+  "$("${TM[@]}" display-message -p -t "$PROCPANE" '#{@claude_pane_status}')" "done"
+"${TM[@]}" kill-window -t t:proc 2>/dev/null
+
+# claude with a real shell child of its own. The child must be a descendant of
+# the fake claude, not of this script, or bg_shell_count correctly ignores it.
+# The trailing ';:' stops sh exec'ing away and leaving no shell process behind.
+"${TM[@]}" new-window -d -t t: -n proc2 "$FAKE/sh_claude -c '$FAKE/zsh -c \"sleep 30; :\" & sleep 30'"
+sleep 1.5
+PROCPANE2=$("${TM[@]}" list-panes -t t:proc2 -F '#{pane_id}')
+CLAUDEPID=$("${TM[@]}" display-message -p -t "$PROCPANE2" '#{pane_pid}')
+is "harness built a claude process" "$(ps -o comm= -p "$CLAUDEPID" | sed 's|.*/||')" "sh_claude"
+kids=$(ps -eo ppid,comm | awk -v c="$CLAUDEPID" '$1==c' | grep -c 'zsh')
+is "harness gave it a shell child" "$kids" "1"
+runhook "$PROCPANE2" stop
+is "stop with a live shell child -> shells" \
+  "$("${TM[@]}" display-message -p -t "$PROCPANE2" '#{@claude_pane_status}')" "shells"
+"${TM[@]}" kill-window -t t:proc2 2>/dev/null
+rm -rf "$FAKE"
+
+# a pane with no claude process at all must not crash or report shells
+runhook "$(${TM[@]} list-panes -t t:w2 -F '#{pane_id}')" stop
+is "stop with no claude process -> done" \
+  "$("${TM[@]}" display-message -p -t t:w2 '#{@claude_pane_status}')" "done"
+runhook "$(${TM[@]} list-panes -t t:w2 -F '#{pane_id}')" end
+
+echo "== background agents (#7) =="
+AP=$("${TM[@]}" list-panes -t t:w1 -F '#{pane_id}' | head -1)
+runhook "$AP" end
+runhook "$AP" agent-start
+runhook "$AP" stop
+is "an agent with no shells still reports shells" \
+  "$("${TM[@]}" display-message -p -t "$AP" '#{@claude_pane_status}')" "shells"
+runhook "$AP" agent-stop
+is "last agent finishing promotes to done" \
+  "$("${TM[@]}" display-message -p -t "$AP" '#{@claude_pane_status}')" "done"
+runhook "$AP" agent-start; runhook "$AP" agent-start; runhook "$AP" agent-stop; runhook "$AP" stop
+is "two agents, one finished, still working" \
+  "$("${TM[@]}" display-message -p -t "$AP" '#{@claude_pane_status}')" "shells"
+runhook "$AP" start
+is "SessionStart resets a stuck agent count" "$("${TM[@]}" display-message -p -t "$AP" '#{@claude_agents}')" "0"
+
+echo "== multiple panes in one window (#4) =="
+"${TM[@]}" new-window -d -t t: -n multi
+"${TM[@]}" split-window -t t:multi
+MP1=$("${TM[@]}" list-panes -t t:multi -F '#{pane_id}' | head -1)
+MP2=$("${TM[@]}" list-panes -t t:multi -F '#{pane_id}' | tail -1)
+runhook "$MP1" prompt; runhook "$MP2" stop
+is "pane states are independent (pane 1)" "$("${TM[@]}" display-message -p -t "$MP1" '#{@claude_pane_status}')" "running"
+is "pane states are independent (pane 2)" "$("${TM[@]}" display-message -p -t "$MP2" '#{@claude_pane_status}')" "done"
+is "window shows the most urgent (done beats running)" \
+  "$("${TM[@]}" display-message -p -t t:multi '#{@claude_status}')" "done"
+runhook "$MP1" ask
+is "question outranks everything" "$("${TM[@]}" display-message -p -t t:multi '#{@claude_status}')" "question"
+runhook "$MP1" end; runhook "$MP2" end
+is "clearing every pane clears the window" "$("${TM[@]}" display-message -p -t t:multi '#{@claude_status}')" ""
+
+echo "== stale state recovery (#5) =="
+runhook "$MP1" prompt; runhook "$MP2" prompt
+runhook "$MP1" start                     # a new session takes over pane 1 only
+is "SessionStart repairs its own pane"      "$("${TM[@]}" display-message -p -t "$MP1" '#{@claude_pane_status}')" ""
+is "SessionStart leaves a sibling pane alone" "$("${TM[@]}" display-message -p -t "$MP2" '#{@claude_pane_status}')" "running"
+runhook "$MP2" end
+"${TM[@]}" kill-window -t t:multi 2>/dev/null
+
+echo "== failure events (#10) =="
+HJ="$ROOT/claude-plugin/hooks/hooks.json"
+for ev in PostToolUseFailure StopFailure SubagentStart SubagentStop SessionStart; do
+  contains "hooks.json wires $ev" "$(cat "$HJ")" "\"$ev\""
+done
+
 echo "== safety =="
 env -u TMUX -u TMUX_PANE "$ROOT/bin/claude-status" stop >/dev/null 2>&1
 is "no-ops cleanly outside tmux" "$?" "0"
 "$ROOT/bin/claude-status" bogus-arg >/dev/null 2>&1
-is "rejects unknown args" "$?" "2"
+is "rejects unknown args (inside or outside tmux)" "$?" "2"
+env -u TMUX -u TMUX_PANE "$ROOT/bin/claude-status" bogus-arg >/dev/null 2>&1
+is "rejects unknown args with no tmux env" "$?" "2"
 
 echo
 echo "== $pass passed, $fail failed =="

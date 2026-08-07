@@ -17,8 +17,12 @@ sessions across tmux windows, the tab bar tells you which one needs you.
 | *(none)* | idle | Nothing running, nothing unread |
 | 🔄 | `running` | Prompt in flight, Claude is working |
 | ❓ | `question` | Blocked on you — permission prompt, AskUserQuestion, MCP dialog |
-| ⏳ | `shells` | Turn finished, but background shells it started are still running |
+| ⏳ | `shells` | Turn finished, but background shells *or agents* it started are still running |
 | ✅ | `done` | Turn finished, nothing running, ready to read |
+
+**Two Claude sessions in one window** are aggregated rather than fighting over a
+single value: each pane keeps its own state and the window shows whichever pane
+most needs you, ranked **question → done → running → shells**.
 
 **Only ✅ ever clears.** 🔄 / ❓ / ⏳ describe live state, and looking at a window
 doesn't answer a question or finish a build. ✅ clears when you arrive at the
