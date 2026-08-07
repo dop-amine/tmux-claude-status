@@ -71,9 +71,25 @@ fi
 #   previous ('!') — it turned ✅ while you were there and you've now left
 tmux set -gq @claude_badge_clear_on_visit "$(opt @claude_badge_clear_on_visit 1)"
 COND='#{&&:#{@claude_badge_clear_on_visit},#{==:#{@claude_status},done}}'
-tmux set-hook -gu session-window-changed 2>/dev/null || true
-tmux set-hook -g  session-window-changed "if -F \"$COND\" 'set-option -w -u @claude_status'"
-tmux set-hook -ga session-window-changed "if -F -t '!' \"$COND\" 'set-option -w -t ! -u @claude_status'"
+CURRENT_WINDOW_CLEAR_ACTION='set-option -w -u @claude_status'
+PREVIOUS_WINDOW_CLEAR_ACTION='set-option -w -t ! -u @claude_status'
+REGISTERED_HOOKS="$(tmux show-hooks -g 2>/dev/null || true)"
+
+has_clear_hook() {  # has_clear_hook <clear action>
+  local action="$1" hook
+  while IFS= read -r hook; do
+    case "$hook" in
+      session-window-changed\[*\]*'@claude_badge_clear_on_visit'*'@claude_status},done'*"$action"*) return 0 ;;
+    esac
+  done <<< "$REGISTERED_HOOKS"
+  return 1
+}
+
+# Append only when absent. Hook arrays are shared with every plugin and user.
+has_clear_hook "$CURRENT_WINDOW_CLEAR_ACTION" ||
+  tmux set-hook -ag session-window-changed "if -F \"$COND\" '$CURRENT_WINDOW_CLEAR_ACTION'"
+has_clear_hook "$PREVIOUS_WINDOW_CLEAR_ACTION" ||
+  tmux set-hook -ag session-window-changed "if -F -t '!' \"$COND\" '$PREVIOUS_WINDOW_CLEAR_ACTION'"
 
 # --- optional toggle key ----------------------------------------------------
 # Flips the ✅ lifecycle at runtime: clear-on-visit (default) vs persist until
