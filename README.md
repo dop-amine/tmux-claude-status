@@ -17,14 +17,15 @@ sessions across tmux windows, the tab bar tells you which one needs you.
 | *(none)* | idle | Nothing running, nothing unread |
 | 🔄 | `running` | Prompt in flight, Claude is working |
 | ❓ | `question` | Blocked on you — permission prompt, AskUserQuestion, MCP dialog |
+| 📝 | `plan` | A plan is written and waiting for your approval |
 | ⏳ | `shells` | Turn finished, but background shells *or agents* it started are still running |
 | ✅ | `done` | Turn finished, nothing running, ready to read |
 
 **Two Claude sessions in one window** are aggregated rather than fighting over a
 single value: each pane keeps its own state and the window shows whichever pane
-most needs you, ranked **question → done → running → shells**.
+most needs you, ranked **question → plan → done → running → shells**.
 
-**Only ✅ ever clears.** 🔄 / ❓ / ⏳ describe live state, and looking at a window
+**Only ✅ ever clears.** 🔄 / ❓ / 📝 / ⏳ describe live state, and looking at a window
 doesn't answer a question or finish a build. ✅ clears when you arrive at the
 window, and also when you *leave* a window it appeared in — because that's the
 point at which you've genuinely had your chance to read it.
@@ -157,6 +158,7 @@ All optional. Set before the plugin loads.
 |---|---|---|
 | `@claude_badge_running` | `' 🔄 '` | Glyph for each state. Trailing spaces are load-bearing — emoji are double-width and a powerline separator will clip them. |
 | `@claude_badge_question` | `' ❓ '` | |
+| `@claude_badge_plan` | `' 📝 '` | |
 | `@claude_badge_shells` | `' ⏳ '` | |
 | `@claude_badge_done` | `' ✅ '` | |
 | `@claude_badge_auto_append` | `on` | Append the fragment to both window status formats. Set `off` to splice `#{E:@claude_badge_fmt}` yourself. |

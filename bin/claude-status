@@ -12,6 +12,7 @@
 #   UserPromptSubmit    -> prompt      : a turn started              -> running
 #   Notification        -> ask         : blocked on the user         -> question
 #   PreToolUse          -> ask         : AskUserQuestion is opening   -> question
+#   PreToolUse          -> plan        : ExitPlanMode is opening      -> plan
 #   PostToolUse         -> busy        : a tool completed            -> retires question
 #   PostToolUseFailure  -> busy        : a tool failed               -> retires question
 #   Stop                -> stop        : turn finished               -> shells | done
@@ -21,15 +22,15 @@
 #   SessionStart        -> start       : new session                 -> repair this pane
 #   SessionEnd          -> end         : session gone                -> clear this pane
 #
-# States: running | question | shells | done   (unset = idle)
+# States: running | question | plan | shells | done   (unset = idle)
 #
 # Exits 0 and does nothing outside tmux, so it's safe to wire unconditionally.
 # Argument validation happens BEFORE that guard, so a typo is caught everywhere.
 
 case "${1:-}" in
-  prompt|clear|ask|busy|stop|done|end|unset|start|agent-start|agent-stop|state) ;;
+  prompt|clear|ask|plan|busy|stop|done|end|unset|start|agent-start|agent-stop|state) ;;
   *)
-    echo "usage: claude-status {prompt|ask|busy|stop|end|start|agent-start|agent-stop|state}" >&2
+    echo "usage: claude-status {prompt|ask|plan|busy|stop|end|start|agent-start|agent-stop|state}" >&2
     exit 2
     ;;
 esac
@@ -96,7 +97,8 @@ still_working() {
 #   question (needs you) > done (ready to read) > running > shells
 rank() {
   case "$1" in
-    question) echo 4 ;;
+    question) echo 5 ;;
+    plan)     echo 4 ;;
     done)     echo 3 ;;
     running)  echo 2 ;;
     shells)   echo 1 ;;
@@ -142,10 +144,16 @@ case "$1" in
     # it stays accurate the moment you switch away from the dialog.
     pane_set question
     ;;
+  plan)
+    # A plan is written and waiting for approval. Distinct from question: you're
+    # reading a proposal, not answering a prompt. Same lifecycle though.
+    pane_set plan
+    ;;
   busy)
     # PostToolUse fires on every tool call, so bail on the first read unless
-    # there's actually a question to retire.
-    [ "$(pane_get)" = question ] || exit 0
+    # there's something waiting on the user to retire. Approving or rejecting a
+    # plan completes ExitPlanMode, which is what lands here.
+    case "$(pane_get)" in question|plan) ;; *) exit 0 ;; esac
     pane_set running
     ;;
   stop|done)
