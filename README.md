@@ -75,14 +75,14 @@ there and you splice the fragment in yourself.
 
 ```json
 "hooks": {
-  "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/bin/claude-status prompt" }] }],
+  "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "\"/path/to/bin/claude-status\" prompt" }] }],
   "Notification":     [{ "matcher": "permission_prompt|elicitation_dialog|agent_needs_input",
-                         "hooks": [{ "type": "command", "command": "/path/to/bin/claude-status ask" }] }],
+                         "hooks": [{ "type": "command", "command": "\"/path/to/bin/claude-status\" ask" }] }],
   "PreToolUse":       [{ "matcher": "AskUserQuestion",
-                         "hooks": [{ "type": "command", "command": "/path/to/bin/claude-status ask" }] }],
-  "PostToolUse":      [{ "hooks": [{ "type": "command", "command": "/path/to/bin/claude-status busy" }] }],
-  "Stop":             [{ "hooks": [{ "type": "command", "command": "/path/to/bin/claude-status stop" }] }],
-  "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "/path/to/bin/claude-status end" }] }]
+                         "hooks": [{ "type": "command", "command": "\"/path/to/bin/claude-status\" ask" }] }],
+  "PostToolUse":      [{ "hooks": [{ "type": "command", "command": "\"/path/to/bin/claude-status\" busy" }] }],
+  "Stop":             [{ "hooks": [{ "type": "command", "command": "\"/path/to/bin/claude-status\" stop" }] }],
+  "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "\"/path/to/bin/claude-status\" end" }] }]
 }
 ```
 
