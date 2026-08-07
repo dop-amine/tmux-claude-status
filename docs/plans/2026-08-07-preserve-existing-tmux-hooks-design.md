@@ -18,9 +18,8 @@ existing commands and targeting behavior.
 Detection is independent of array indices. It recognizes handlers installed by
 the previous release at indices 0 and 1, so a live upgrade does not leave legacy
 duplicates. It also recognizes handlers appended by this release, making config
-reloads idempotent. The match includes the event name, clear-on-visit condition,
-done-state comparison, and clear action so an unrelated hook does not suppress
-registration.
+reloads idempotent. The match checks identifying fragments from the event name,
+clear-on-visit condition, done-state comparison, and clear action.
 
 ## Verification
 
@@ -28,4 +27,6 @@ Extend the isolated tmux test to install marker hooks before and after the first
 renderer load, including markers in the fixed slots rejected during adversarial
 review. Source the renderer twice, then assert that all markers remain and that
 exactly one copy of each Claude handler is registered. The existing clearing
-tests continue to prove that both handlers run.
+tests continue to prove that both handlers run. A second isolated server starts
+with the legacy handlers at indices 0 and 1 and verifies that an upgrade does not
+append duplicates.

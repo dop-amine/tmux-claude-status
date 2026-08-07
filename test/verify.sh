@@ -20,6 +20,7 @@ TMUX_BIN="${TMUX_BIN:-$(command -v tmux)}"
 [ -x "$TMUX_BIN" ] || { echo "tmux not found; set TMUX_BIN=/path/to/tmux" >&2; exit 2; }
 SOCK="claude-status-verify-$$"
 TM=("$TMUX_BIN" -L "$SOCK" -f /dev/null)      # -f /dev/null = ignore ~/.tmux.conf
+LEGACY_TM=("$TMUX_BIN" -L "$SOCK-legacy" -f /dev/null)
 
 pass=0; fail=0
 ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; pass=$((pass+1)); }
@@ -27,7 +28,10 @@ no() { printf '  \033[31m✗\033[0m %s\n' "$1"; fail=$((fail+1)); }
 is() { [ "$2" = "$3" ] && ok "$1" || no "$1 — got [$2] expected [$3]"; }
 contains()     { case "$2" in *"$3"*) ok "$1" ;; *) no "$1 — [$2] lacks [$3]" ;; esac; }
 not_contains() { case "$2" in *"$3"*) no "$1 — [$2] still shows [$3]" ;; *) ok "$1" ;; esac; }
-cleanup() { "${TM[@]}" kill-server 2>/dev/null; }
+cleanup() {
+  "${TM[@]}" kill-server 2>/dev/null
+  "${LEGACY_TM[@]}" kill-server 2>/dev/null
+}
 trap cleanup EXIT
 
 "${TM[@]}" new-session -d -s t -n w1 -x 200 -y 50
@@ -78,6 +82,20 @@ current_hooks=$(printf '%s\n' "$hooks" | grep -F 'set-option -w -u @claude_statu
 previous_hooks=$(printf '%s\n' "$hooks" | grep -F 'set-option -w -t ! -u @claude_status' | wc -l | tr -d ' ')
 is "registers one current-window clear hook"  "$current_hooks" "1"
 is "registers one previous-window clear hook" "$previous_hooks" "1"
+
+echo "== live upgrade from legacy hook slots =="
+"${LEGACY_TM[@]}" new-session -d -s legacy -n w1 -x 200 -y 50
+legacy_cond='#{&&:#{@claude_badge_clear_on_visit},#{==:#{@claude_status},done}}'
+"${LEGACY_TM[@]}" set-hook -g 'session-window-changed[0]' \
+  "if -F \"$legacy_cond\" 'set-option -w -u @claude_status'"
+"${LEGACY_TM[@]}" set-hook -g 'session-window-changed[1]' \
+  "if -F -t '!' \"$legacy_cond\" 'set-option -w -t ! -u @claude_status'"
+"${LEGACY_TM[@]}" run-shell "$ROOT/claude-status.tmux"; sleep 0.4
+legacy_hooks=$("${LEGACY_TM[@]}" show-hooks -g)
+legacy_current=$(printf '%s\n' "$legacy_hooks" | grep -F 'set-option -w -u @claude_status' | wc -l | tr -d ' ')
+legacy_previous=$(printf '%s\n' "$legacy_hooks" | grep -F 'set-option -w -t ! -u @claude_status' | wc -l | tr -d ' ')
+is "does not duplicate the legacy current hook"  "$legacy_current" "1"
+is "does not duplicate the legacy previous hook" "$legacy_previous" "1"
 
 echo "== renders in BOTH formats (the bug that shipped twice) =="
 # Switch windows FIRST, then set the state: "done" clears on both arrive and
