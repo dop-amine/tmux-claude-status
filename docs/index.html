@@ -23,6 +23,7 @@
     --green:#56d364;
     --amber:#e3a008;
     --red:#ff6f61;
+    --magenta:#bc8cff;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
@@ -102,6 +103,7 @@
   .state .d{font-size:.92rem;color:var(--tx-2);}
   .state.running{border-left-color:var(--blue);}
   .state.question{border-left-color:var(--red);}
+  .state.plan{border-left-color:var(--magenta,#bc8cff);}
   .state.shells{border-left-color:var(--amber);}
   .state.done{border-left-color:var(--green);}
   .state.idle{border-left-color:var(--stk-2);}
@@ -206,9 +208,13 @@
         <span class="g">❓</span><span class="k">question</span>
         <span class="d">Blocked on you: a permission prompt, a question, or an MCP dialog</span>
       </div>
+      <div class="state plan">
+        <span class="g">📝</span><span class="k">plan</span>
+        <span class="d">A plan is written and waiting for your approval</span>
+      </div>
       <div class="state shells">
         <span class="g">⏳</span><span class="k">shells</span>
-        <span class="d">Turn finished, but background shells it started are still running</span>
+        <span class="d">Turn finished, but background shells or agents it started are still running</span>
       </div>
       <div class="state done">
         <span class="g">✅</span><span class="k">done</span>
@@ -218,8 +224,9 @@
 
     <h3>Only the checkmark ever clears</h3>
     <p>
-      🔄, ❓ and ⏳ describe live state. Looking at a window doesn't answer a
-      question or finish a build, so visiting a tab leaves them alone.
+      🔄, ❓, 📝 and ⏳ describe live state. Looking at a window doesn't answer a
+      question, approve a plan, or finish a build, so visiting a tab leaves them
+      alone.
     </p>
     <p>
       ✅ clears when you <strong>arrive</strong> at the window, and also when you
@@ -268,6 +275,14 @@
       neither — it's a read-only viewer of the settings file.)
     </div>
 
+    <h3>Two sessions in one window</h3>
+    <p>
+      State is kept per pane and aggregated to the window, so two Claude sessions
+      split across one window don't overwrite each other. The tab shows whichever
+      pane most needs you, ranked
+      <code>question → plan → done → running → shells</code>.
+    </p>
+
     <h3>Using "Oh my tmux!"?</h3>
     <p>
       gpakosz rebuilds the status formats after sourcing your overrides, so it
@@ -282,8 +297,9 @@
       <table>
         <thead><tr><th>Option</th><th>Default</th><th>Purpose</th></tr></thead>
         <tbody>
-          <tr><td><code>@claude_badge_running</code></td><td><code>' 🔄 '</code></td><td rowspan="4">The glyph for each state. Swap for single-width characters if emoji clip in your terminal.</td></tr>
+          <tr><td><code>@claude_badge_running</code></td><td><code>' 🔄 '</code></td><td rowspan="5">The glyph for each state. Swap for single-width characters if emoji clip in your terminal.</td></tr>
           <tr><td><code>@claude_badge_question</code></td><td><code>' ❓ '</code></td></tr>
+          <tr><td><code>@claude_badge_plan</code></td><td><code>' 📝 '</code></td></tr>
           <tr><td><code>@claude_badge_shells</code></td><td><code>' ⏳ '</code></td></tr>
           <tr><td><code>@claude_badge_done</code></td><td><code>' ✅ '</code></td></tr>
           <tr><td><code>@claude_badge_auto_append</code></td><td><code>on</code></td><td>Append the badge to both window status formats automatically.</td></tr>
@@ -313,6 +329,18 @@
       <li><strong>Plugin matchers work.</strong> A plugin's <code>hooks.json</code> honours <code>matcher</code>, which is what makes ❓ possible at all. Verified by installing the plugin as the only source of hooks and driving a real question dialog.</li>
       <li><strong>Hook reloading is split.</strong> <code>settings.json</code> hooks hot-reload into running sessions (verified with a marker hook fired mid-session); plugin hooks only load at session start — and asynchronously, so a brand-new session's very first prompt can miss them. A missing hook script still fails <em>silently</em> — the badge just freezes.</li>
       <li><strong><code>pgrep</code> doesn't work in a hook.</strong> <code>pgrep -P</code> returns nothing from inside a hook's execution context. Not an error — an empty result, which reads exactly like "no background shells" and produces a badge that's confidently wrong. <code>ps</code> works.</li>
+      <li><strong>Plan approval is a tool, not a notification.</strong> <code>/plan</code>
+        ends by calling <code>ExitPlanMode</code>, so <code>PreToolUse</code> with that
+        matcher fires the moment the approval dialog opens. There is no plan-specific
+        notification type; the tool name is the signal.</li>
+      <li><strong>Background agents have no process.</strong> An agent runs inside the
+        <code>claude</code> process, so a process-tree walk is structurally blind to it.
+        A window with an agent working for minutes reported ✅. They're counted via
+        <code>SubagentStart</code>/<code>SubagentStop</code> instead.</li>
+      <li><strong>Failure events are separate events.</strong> <code>PostToolUse</code>
+        doesn't fire when a tool fails and <code>Stop</code> doesn't fire when a turn dies
+        on an API error. Without <code>PostToolUseFailure</code> and
+        <code>StopFailure</code>, a failed tool strands ❓ and an API error strands 🔄.</li>
       <li><strong>⏳ resolves without polling.</strong> When a tracked background shell exits, Claude Code wakes the session for a completion turn, which re-evaluates the state. No timer, no watcher.</li>
     </ul>
 

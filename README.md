@@ -212,6 +212,13 @@ Verified with **no badge hooks in `settings.json` at all** — everything driven
 - **Why `session-window-changed` and not `after-select-window`.** The latter is
   a *command* hook that fires only for a literal `select-window`. Clicking a tab
   in the status bar runs `switch-client -t =`, so badges silently never cleared.
+- **Failure events are separate events.** `PostToolUse` doesn't fire when a tool
+  fails and `Stop` doesn't fire when a turn dies on an API error, so
+  `PostToolUseFailure` and `StopFailure` are wired to the same handlers. Without
+  them a failed tool strands ❓ and an API error strands 🔄 indefinitely.
+- **Background agents have no process.** They run inside the `claude` process, so
+  the process-tree walk can't see them. `SubagentStart`/`SubagentStop` keep a
+  per-pane counter instead, reset by `SessionStart`.
 - **Why `ps` and not `pgrep`.** `pgrep -P` returns nothing from inside the
   hook's sandboxed execution context — silently, which reads exactly like "no
   background shells".
