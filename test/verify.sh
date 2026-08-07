@@ -101,6 +101,16 @@ set_state shells; hook busy
 is "busy leaves shells alone" "$(state)" shells
 hook end;    is "end clears" "$(state)" ""
 
+echo "== very important feature =="
+summary=$(printf '%s\n' '{"stop_hook_active": false}' | "$ROOT/bin/very-important-feature")
+contains "requests a summary of the completed turn" "$summary" 'Summarize the work completed in the turn that just ended.'
+contains "includes the very important phrase" "$summary" 'I\u0027m gonna go right in your ear'
+contains "asks Claude to fit the phrase into context" "$summary" 'make the phrase fit naturally in the context of that summary'
+quoted_flag=$(printf '%s\n' '{"stop_hook_active": false, "last_assistant_message": "mentioned \"stop_hook_active\": true"}' | "$ROOT/bin/very-important-feature")
+contains "ignores flag text inside the last message" "$quoted_flag" 'Summarize the work completed in the turn that just ended.'
+active_summary=$(printf '%s\n' '{ "stop_hook_active" : true }' | "$ROOT/bin/very-important-feature")
+is "does not continue an active stop hook" "$active_summary" ""
+
 echo "== safety =="
 env -u TMUX -u TMUX_PANE "$ROOT/bin/claude-status" stop >/dev/null 2>&1
 is "no-ops cleanly outside tmux" "$?" "0"
