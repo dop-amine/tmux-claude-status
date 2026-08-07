@@ -9,23 +9,23 @@ therefore removes unrelated handlers.
 
 ## Design
 
-Register the two Claude badge handlers at dedicated array indices instead of
-unsetting the array. Setting an indexed hook replaces only that member, so
-reloading remains idempotent while all other indices remain untouched. Keep the
-current-window and previous-window handlers separate to preserve the existing
-commands and targeting behavior.
+Inspect the registered hooks for the current-window and previous-window clear
+actions. Append either handler only when that exact condition and action are
+absent. tmux chooses unused array indices when appending, so the plugin never
+replaces an occupied slot. Keep the two handlers separate to preserve the
+existing commands and targeting behavior.
 
-Use named shell constants for the selected hook slots. The slots are high enough
-to avoid the low indices tmux assigns to appended hooks in normal configurations.
-An explicit slot can theoretically conflict with another plugin using the same
-number, but that risk is narrower and visible compared with deleting the entire
-shared array. Scanning and rewriting hook output would introduce parsing and
-quoting risks for no functional benefit.
+Detection is independent of array indices. It recognizes handlers installed by
+the previous release at indices 0 and 1, so a live upgrade does not leave legacy
+duplicates. It also recognizes handlers appended by this release, making config
+reloads idempotent. The match includes the event name, clear-on-visit condition,
+done-state comparison, and clear action so an unrelated hook does not suppress
+registration.
 
 ## Verification
 
 Extend the isolated tmux test to install marker hooks before and after the first
-renderer load. Source the renderer twice, then assert that both marker hooks are
-still registered. The existing clearing tests continue to prove that the Claude
-handlers run for current and previous windows. The existing idempotence check
-continues to cover repeated renderer loading.
+renderer load, including markers in the fixed slots rejected during adversarial
+review. Source the renderer twice, then assert that all markers remain and that
+exactly one copy of each Claude handler is registered. The existing clearing
+tests continue to prove that both handlers run.

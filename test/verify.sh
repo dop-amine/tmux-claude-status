@@ -33,6 +33,8 @@ trap cleanup EXIT
 "${TM[@]}" new-session -d -s t -n w1 -x 200 -y 50
 "${TM[@]}" new-window -d -t t: -n w2
 "${TM[@]}" set-hook -g 'session-window-changed[42]' 'display-message hook-before-plugin'
+"${TM[@]}" set-hook -g 'session-window-changed[90100]' 'display-message occupied-slot-90100'
+"${TM[@]}" set-hook -g 'session-window-changed[90101]' 'display-message occupied-slot-90101'
 "${TM[@]}" run-shell "$ROOT/claude-status.tmux"
 sleep 0.5
 
@@ -70,6 +72,12 @@ is "re-sourcing does not stack duplicates" "$n" "1"
 hooks=$("${TM[@]}" show-hooks -g)
 contains "preserves hooks installed before first load" "$hooks" 'session-window-changed[42] display-message hook-before-plugin'
 contains "preserves hooks installed before reload"     "$hooks" 'session-window-changed[43] display-message hook-after-plugin'
+contains "preserves occupied hook slot 90100" "$hooks" 'session-window-changed[90100] display-message occupied-slot-90100'
+contains "preserves occupied hook slot 90101" "$hooks" 'session-window-changed[90101] display-message occupied-slot-90101'
+current_hooks=$(printf '%s\n' "$hooks" | grep -F 'set-option -w -u @claude_status' | wc -l | tr -d ' ')
+previous_hooks=$(printf '%s\n' "$hooks" | grep -F 'set-option -w -t ! -u @claude_status' | wc -l | tr -d ' ')
+is "registers one current-window clear hook"  "$current_hooks" "1"
+is "registers one previous-window clear hook" "$previous_hooks" "1"
 
 echo "== renders in BOTH formats (the bug that shipped twice) =="
 # Switch windows FIRST, then set the state: "done" clears on both arrive and
