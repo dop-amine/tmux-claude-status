@@ -260,10 +260,12 @@
     </div>
 
     <div class="note">
-      <strong>Restarting matters.</strong> Hooks are snapshotted when a session
-      starts, and nothing reloads them — not <code>/hooks</code>, which is a
-      read-only viewer, and not installing the plugin.
-      <code>claude --resume</code> restarts the process while keeping the thread.
+      <strong>Restarting matters — for plugin hooks.</strong> Installing or
+      enabling the plugin doesn't propagate into running sessions;
+      <code>claude --resume</code> restarts the process while keeping the
+      thread. (Hand-wired <code>settings.json</code> hooks are different: those
+      hot-reload into running sessions on 2.1.220. <code>/hooks</code> proves
+      neither — it's a read-only viewer of the settings file.)
     </div>
 
     <h3>Using "Oh my tmux!"?</h3>
@@ -309,7 +311,7 @@
     <ul>
       <li><strong>Notification types.</strong> <code>Notification</code> carries a <code>notification_type</code>; only three of its eight values mean "blocked on the user". <code>idle_prompt</code> is deliberately excluded — it fires when Claude is merely idle, which would put ❓ on every finished window.</li>
       <li><strong>Plugin matchers work.</strong> A plugin's <code>hooks.json</code> honours <code>matcher</code>, which is what makes ❓ possible at all. Verified by installing the plugin as the only source of hooks and driving a real question dialog.</li>
-      <li><strong>Hooks are snapshotted.</strong> Nothing reloads them into a live session. Changing a hook's path leaves running sessions invoking the old one, and a missing hook script fails <em>silently</em> — the badge just freezes.</li>
+      <li><strong>Hook reloading is split.</strong> <code>settings.json</code> hooks hot-reload into running sessions (verified with a marker hook fired mid-session); plugin hooks only load at session start — and asynchronously, so a brand-new session's very first prompt can miss them. A missing hook script still fails <em>silently</em> — the badge just freezes.</li>
       <li><strong><code>pgrep</code> doesn't work in a hook.</strong> <code>pgrep -P</code> returns nothing from inside a hook's execution context. Not an error — an empty result, which reads exactly like "no background shells" and produces a badge that's confidently wrong. <code>ps</code> works.</li>
       <li><strong>⏳ resolves without polling.</strong> When a tracked background shell exits, Claude Code wakes the session for a completion turn, which re-evaluates the state. No timer, no watcher.</li>
     </ul>

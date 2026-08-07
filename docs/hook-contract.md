@@ -77,36 +77,65 @@ every tool call and ❓ would have been permanently stuck on.
 `${CLAUDE_PLUGIN_ROOT}` expands inside hook commands, which is what lets a plugin
 ship its own executable without absolute paths.
 
+One more piece of load-bearing installer behaviour: this repo's
+`claude-plugin/bin` is a **symlink** to `../bin`, whose target sits *outside*
+the plugin source directory. The installer dereferences it when copying into
+the plugin cache — the installed `bin/claude-status` is a real executable
+file, not a dangling link (verified on 2.1.220 by inspecting the cache and
+executing it). If a Claude Code release ever starts copying symlinks
+literally, the plugin's hooks will all silently fail; checking that cache file
+is the first diagnostic.
+
 ---
 
-## Hooks are snapshotted at session start, and nothing reloads them
+## Hook reloading: settings hooks are live, plugin hooks are not
 
-A running session uses the hook configuration that existed when it launched.
-**Restarting the `claude` process is the only way to change that.**
+Earlier revisions of this document claimed hooks were snapshotted at session
+start with nothing able to reload them. That's **half wrong**, and the half
+that's wrong was corrected by a stronger experiment. Verified on **2.1.220**:
 
-Two things that do *not* work, both tested:
+- **`settings.json` hooks hot-reload into running sessions.** Additions and
+  removals both take effect on the session's next turn, no restart.
 
-- **`/hooks` does not reload.** In 2.1.x it's a read-only viewer — it says so on
-  screen: *"This menu is read-only. To add or modify hooks, edit settings.json
-  directly."* It also only lists `settings.json` hooks; plugin-provided hooks don't
-  appear in it at all.
+  The experiment (the part that must be *behavioural* — see the trap below):
+  start a fresh session, then append a marker hook to `settings.json`
+  (`Stop` → `touch /tmp/proof`), then drive one trivial turn in that
+  already-running session. The marker file appears. Removal verified the same
+  way in reverse: strip hooks from `settings.json` and a running session's
+  `/hooks` count drops — and more importantly, the removed hooks stop firing.
+
 - **Installing or enabling a plugin does not propagate into live sessions.**
+  This half of the original claim stands. A session started before
+  `plugin install` never fires the plugin's hooks, even after the plugin shows
+  enabled and inventoried (`claude plugin details` listing all six). Restart
+  the process — `claude --resume` keeps the thread.
 
-The experiment: disable the plugin, start a session (so it snapshots with no badge
-hooks), re-enable the plugin, run a turn — badge doesn't move. Run `/hooks`, run
-another turn — still doesn't move. Start a *fresh* session — badge works
-immediately.
+- **Plugin hooks register asynchronously at session start.** In a brand-new
+  session, a prompt submitted within the first few seconds can complete
+  without the plugin's hooks firing at all; the same session badges correctly
+  from the next turn on. A fresh session left to settle for ~30s badges
+  correctly on its *first* turn. If you're scripting a smoke test, don't fire
+  the first prompt instantly after launch.
 
-The tmux window doesn't need touching; only the `claude` process. `claude --resume`
-restarts it while keeping the thread.
+### The `/hooks` trap
+
+`/hooks` is a read-only viewer that **re-reads `settings.json` live**, and it
+doesn't list plugin hooks at all. Both properties make it useless as evidence
+of what a running session is executing: it can show hooks the executor also
+has (settings, which hot-reload) and it will never show hooks the executor
+definitely has (plugin). Conclusions about hook behaviour must come from
+watching hooks *fire*, not from this menu — an earlier revision of this very
+document got the reload claim wrong by trusting viewer-level evidence.
 
 ### The consequence worth knowing
 
-If you change the path a hook points at, sessions already running still invoke the
-**old path**. A missing hook script fails **silently** — no error surfaces
-anywhere. The badge simply freezes at whatever state it last held. A stuck ❓ that
-never resolves after you answer is the tell. See the migration section in the
-README.
+A missing hook **script** fails **silently** — no error surfaces anywhere. Any
+session still invoking a deleted path freezes badges at whatever state they
+last held. A stuck ❓ that never resolves after you answer is the tell. On
+2.1.220 the settings hot-reload makes this mostly a non-issue for hand-wired
+hooks (removing the entries stops the invocations too), but it still applies
+to any snapshotting version, and to moving/renaming the script while entries
+still reference it. See the migration section in the README.
 
 ---
 
