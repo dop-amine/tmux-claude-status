@@ -32,6 +32,7 @@ trap cleanup EXIT
 
 "${TM[@]}" new-session -d -s t -n w1 -x 200 -y 50
 "${TM[@]}" new-window -d -t t: -n w2
+"${TM[@]}" set-hook -g 'session-window-changed[42]' 'display-message hook-before-plugin'
 "${TM[@]}" run-shell "$ROOT/claude-status.tmux"
 sleep 0.5
 
@@ -62,9 +63,13 @@ echo "== fragment =="
 contains "publishes @claude_badge_fmt" "$("${TM[@]}" show-option -gqv @claude_badge_fmt)" '@claude_status'
 contains "auto-appended to window-status-format"         "$("${TM[@]}" show-option -gqv window-status-format)"         '@claude_badge_fmt'
 contains "auto-appended to window-status-current-format" "$("${TM[@]}" show-option -gqv window-status-current-format)" '@claude_badge_fmt'
+"${TM[@]}" set-hook -g 'session-window-changed[43]' 'display-message hook-after-plugin'
 "${TM[@]}" run-shell "$ROOT/claude-status.tmux"; sleep 0.4
 n=$("${TM[@]}" show-option -gqv window-status-format | grep -o '@claude_badge_fmt' | wc -l | tr -d ' ')
 is "re-sourcing does not stack duplicates" "$n" "1"
+hooks=$("${TM[@]}" show-hooks -g)
+contains "preserves hooks installed before first load" "$hooks" 'session-window-changed[42] display-message hook-before-plugin'
+contains "preserves hooks installed before reload"     "$hooks" 'session-window-changed[43] display-message hook-after-plugin'
 
 echo "== renders in BOTH formats (the bug that shipped twice) =="
 # Switch windows FIRST, then set the state: "done" clears on both arrive and

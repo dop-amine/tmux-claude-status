@@ -71,9 +71,11 @@ fi
 #   previous ('!') — it turned ✅ while you were there and you've now left
 tmux set -gq @claude_badge_clear_on_visit "$(opt @claude_badge_clear_on_visit 1)"
 COND='#{&&:#{@claude_badge_clear_on_visit},#{==:#{@claude_status},done}}'
-tmux set-hook -gu session-window-changed 2>/dev/null || true
-tmux set-hook -g  session-window-changed "if -F \"$COND\" 'set-option -w -u @claude_status'"
-tmux set-hook -ga session-window-changed "if -F -t '!' \"$COND\" 'set-option -w -t ! -u @claude_status'"
+# Fixed array slots keep reloads idempotent without clearing hooks owned by others.
+CURRENT_WINDOW_CLEAR_HOOK='session-window-changed[90100]'
+PREVIOUS_WINDOW_CLEAR_HOOK='session-window-changed[90101]'
+tmux set-hook -g "$CURRENT_WINDOW_CLEAR_HOOK" "if -F \"$COND\" 'set-option -w -u @claude_status'"
+tmux set-hook -g "$PREVIOUS_WINDOW_CLEAR_HOOK" "if -F -t '!' \"$COND\" 'set-option -w -t ! -u @claude_status'"
 
 # --- optional toggle key ----------------------------------------------------
 # Flips the ✅ lifecycle at runtime: clear-on-visit (default) vs persist until
