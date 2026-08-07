@@ -201,6 +201,16 @@ executable, not a `node` wrapper, so the same name filter works on both.
 
 ---
 
+## Plan approval is a tool, not a notification
+
+`/plan` ends by calling **`ExitPlanMode`**, so `PreToolUse` with that matcher
+fires the instant the approval dialog opens — the same mechanism as
+`AskUserQuestion`, and equally exact. There is no plan-specific
+`notification_type`; the tool name is the signal.
+
+Approving *or* rejecting completes the tool, so `PostToolUse` retires the state
+the same way it retires a question.
+
 ## Background *agents* have no process to find
 
 `bg_shell_count` walks the process tree, which finds background **shells** and

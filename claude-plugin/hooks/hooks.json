@@ -40,6 +40,15 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" ask"
           }
         ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" plan"
+          }
+        ]
       }
     ],
     "PostToolUse": [

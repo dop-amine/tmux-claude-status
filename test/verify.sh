@@ -44,10 +44,11 @@ sleep 0.5
 
 GLYPH_running=$("${TM[@]}" show-option -gqv @claude_badge_running)
 GLYPH_question=$("${TM[@]}" show-option -gqv @claude_badge_question)
+GLYPH_plan=$("${TM[@]}" show-option -gqv @claude_badge_plan)
 GLYPH_shells=$("${TM[@]}" show-option -gqv @claude_badge_shells)
 GLYPH_done=$("${TM[@]}" show-option -gqv @claude_badge_done)
 # defaults live in the .tmux script, so read them back off the built fragment
-[ -n "$GLYPH_running" ] || { GLYPH_running='🔄'; GLYPH_question='❓'; GLYPH_shells='⏳'; GLYPH_done='✅'; }
+[ -n "$GLYPH_running" ] || { GLYPH_running='🔄'; GLYPH_question='❓'; GLYPH_plan='📝'; GLYPH_shells='⏳'; GLYPH_done='✅'; }
 
 draw() {  # what window 1's tab renders right now, honouring active/inactive
   local fmt=window-status-format
@@ -101,20 +102,20 @@ echo "== renders in BOTH formats (the bug that shipped twice) =="
 # Switch windows FIRST, then set the state: "done" clears on both arrive and
 # leave, so setting it before a switch means the clear rules correctly wipe it
 # before anything is drawn. Position, then set, then read.
-for st in running question shells done; do
+for st in running question plan shells done; do
   eval "g=\$GLYPH_$st"
   leave1; set_state "$st"; contains "$st renders on inactive tab" "$(draw)" "$g"
   enter1; set_state "$st"; contains "$st renders on ACTIVE tab"   "$(draw)" "$g"
   clear_state
 done
 clear_state; leave1
-for st in running question shells done; do
+for st in running question plan shells done; do
   eval "g=\$GLYPH_$st"
   not_contains "idle shows no $st glyph" "$(draw)" "$g"
 done
 
 echo "== clearing rules =="
-for st in running question shells; do
+for st in running question plan shells; do
   set_state "$st"; enter1; is "$st survives arriving" "$(state)" "$st"
   leave1;                  is "$st survives leaving"  "$(state)" "$st"
   clear_state
@@ -225,6 +226,22 @@ HJ="$ROOT/claude-plugin/hooks/hooks.json"
 for ev in PostToolUseFailure StopFailure SubagentStart SubagentStop SessionStart; do
   contains "hooks.json wires $ev" "$(cat "$HJ")" "\"$ev\""
 done
+
+
+echo "== plan awaiting approval (#15) =="
+PP=$("${TM[@]}" list-panes -t t:w1 -F '#{pane_id}' | head -1)
+runhook "$PP" end
+runhook "$PP" plan
+is "ExitPlanMode -> plan" "$("${TM[@]}" display-message -p -t "$PP" '#{@claude_pane_status}')" "plan"
+runhook "$PP" busy
+is "approving the plan retires it" "$("${TM[@]}" display-message -p -t "$PP" '#{@claude_pane_status}')" "running"
+runhook "$PP" plan
+"${TM[@]}" select-window -t t:w1; sleep 0.3
+is "plan survives arriving" "$("${TM[@]}" display-message -p -t "$PP" '#{@claude_pane_status}')" "plan"
+"${TM[@]}" select-window -t t:w2; sleep 0.3
+is "plan survives leaving" "$("${TM[@]}" display-message -p -t "$PP" '#{@claude_pane_status}')" "plan"
+runhook "$PP" end
+contains "hooks.json matches ExitPlanMode" "$(cat "$ROOT/claude-plugin/hooks/hooks.json")" '"ExitPlanMode"'
 
 echo "== safety =="
 env -u TMUX -u TMUX_PANE "$ROOT/bin/claude-status" stop >/dev/null 2>&1
