@@ -80,24 +80,39 @@ CURRENT_WINDOW_CLEAR_ACTION='set-option -w @claude_ack 1 ; set-option -w -u @cla
 PREVIOUS_WINDOW_CLEAR_ACTION='set-option -w -t ! @claude_ack 1 ; set-option -w -t ! -u @claude_status'
 REGISTERED_HOOKS="$(tmux show-hooks -g 2>/dev/null || true)"
 
-has_clear_hook() {  # has_clear_hook <stable clear substring>
-  local action="$1" hook
+# Find our handler in the shared hook array and report its index, or nothing.
+# Keying on the clear substring (not the whole action) is what lets a release
+# recognise handlers written by an older one instead of appending a duplicate.
+find_clear_hook() {  # find_clear_hook <stable clear substring>
+  local want="$1" hook idx
   while IFS= read -r hook; do
     case "$hook" in
-      session-window-changed\[*\]*'@claude_badge_clear_on_visit'*'@claude_status},done'*"$action"*) return 0 ;;
+      session-window-changed\[*\]*'@claude_badge_clear_on_visit'*"$want"*)
+        idx="${hook#session-window-changed[}"; printf '%s' "${idx%%]*}"; return 0 ;;
     esac
   done <<< "$REGISTERED_HOOKS"
   return 1
 }
 
-# Append only when absent. Hook arrays are shared with every plugin and user.
-# Match on the clear itself, not the whole action: earlier releases wrote a
-# shorter action, and a release that changes it must still recognise its own
-# older handlers or every reload appends another copy.
-has_clear_hook 'set-option -w -u @claude_status' ||
-  tmux set-hook -ag session-window-changed "if -F \"$COND\" '$CURRENT_WINDOW_CLEAR_ACTION'"
-has_clear_hook 'set-option -w -t ! -u @claude_status' ||
-  tmux set-hook -ag session-window-changed "if -F -t '!' \"$COND\" '$PREVIOUS_WINDOW_CLEAR_ACTION'"
+# Install our handler: append when absent, and upgrade in place when an older
+# release's version is already there. Replacing at its own index keeps every
+# unrelated hook in the array intact — wiping the array to re-add is exactly the
+# bad-citizen behaviour this plugin was fixing.
+install_clear_hook() {  # install_clear_hook <clear substring> <full action> <if-flags>
+  local want="$1" action="$2" flags="$3" idx existing
+  if idx="$(find_clear_hook "$want")"; then
+    existing="$(printf '%s\n' "$REGISTERED_HOOKS" | grep -F "session-window-changed[$idx]")"
+    case "$existing" in
+      *'@claude_ack'*) return 0 ;;   # already current
+      *) tmux set-hook -g "session-window-changed[$idx]" "if -F $flags \"$COND\" '$action'" ;;
+    esac
+  else
+    tmux set-hook -ag session-window-changed "if -F $flags \"$COND\" '$action'"
+  fi
+}
+
+install_clear_hook 'set-option -w -u @claude_status'      "$CURRENT_WINDOW_CLEAR_ACTION"  ''
+install_clear_hook 'set-option -w -t ! -u @claude_status' "$PREVIOUS_WINDOW_CLEAR_ACTION" "-t '!'"
 
 # --- optional toggle key ----------------------------------------------------
 # Flips the ✅ lifecycle at runtime: clear-on-visit (default) vs persist until

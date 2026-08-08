@@ -97,6 +97,16 @@ legacy_current=$(printf '%s\n' "$legacy_hooks" | grep -F 'set-option -w -u @clau
 legacy_previous=$(printf '%s\n' "$legacy_hooks" | grep -F 'set-option -w -t ! -u @claude_status' | wc -l | tr -d ' ')
 is "does not duplicate the legacy current hook"  "$legacy_current" "1"
 is "does not duplicate the legacy previous hook" "$legacy_previous" "1"
+# #16: legacy handlers predate @claude_ack, so keeping them verbatim would leave
+# the multi-pane suppression dormant on any server upgraded in place.
+legacy_ack=$(printf '%s\n' "$legacy_hooks" | grep -c '@claude_ack')
+is "legacy handlers are upgraded to write @claude_ack" "$legacy_ack" "2"
+"${LEGACY_TM[@]}" set-hook -g 'session-window-changed[7]' 'display-message unrelated'
+"${LEGACY_TM[@]}" run-shell "$ROOT/claude-status.tmux"; sleep 0.4
+contains "upgrading preserves unrelated hooks" \
+  "$("${LEGACY_TM[@]}" show-hooks -g)" 'session-window-changed[7] display-message unrelated'
+again=$("${LEGACY_TM[@]}" show-hooks -g | grep -Fc 'set-option -w -u @claude_status')
+is "upgrading twice still leaves one current handler" "$again" "1"
 
 echo "== renders in BOTH formats (the bug that shipped twice) =="
 # Switch windows FIRST, then set the state: "done" clears on both arrive and
