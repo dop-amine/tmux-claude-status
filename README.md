@@ -228,6 +228,17 @@ Verified with **no badge hooks in `settings.json` at all** — everything driven
   question could in principle flip ❓ back to 🔄 early. Not observed in practice,
   since `AskUserQuestion` blocks the turn.
 
+## Releasing
+
+`claude plugin update` compares the version in `claude-plugin/.claude-plugin/plugin.json`
+and **no-ops when only the content changed**, so every user-visible change needs a
+version bump or installs silently stay stale. Reinstalling works either way:
+
+```sh
+claude plugin uninstall tmux-claude-status@tmux-claude-status
+claude plugin install   tmux-claude-status@tmux-claude-status
+```
+
 ## Further reading
 
 - **[docs/hook-contract.md](docs/hook-contract.md)** — the Claude Code hook behaviour
