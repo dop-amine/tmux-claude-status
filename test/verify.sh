@@ -45,10 +45,12 @@ sleep 0.5
 GLYPH_running=$("${TM[@]}" show-option -gqv @claude_badge_running)
 GLYPH_question=$("${TM[@]}" show-option -gqv @claude_badge_question)
 GLYPH_plan=$("${TM[@]}" show-option -gqv @claude_badge_plan)
+GLYPH_error=$("${TM[@]}" show-option -gqv @claude_badge_error)
+GLYPH_loop=$("${TM[@]}" show-option -gqv @claude_badge_loop)
 GLYPH_shells=$("${TM[@]}" show-option -gqv @claude_badge_shells)
 GLYPH_done=$("${TM[@]}" show-option -gqv @claude_badge_done)
 # defaults live in the .tmux script, so read them back off the built fragment
-[ -n "$GLYPH_running" ] || { GLYPH_running='🔄'; GLYPH_question='❓'; GLYPH_plan='📝'; GLYPH_shells='⏳'; GLYPH_done='✅'; }
+[ -n "$GLYPH_running" ] || { GLYPH_running='🔄'; GLYPH_question='❓'; GLYPH_plan='📝'; GLYPH_error='⚠️'; GLYPH_loop='🌀'; GLYPH_shells='⏳'; GLYPH_done='✅'; }
 
 draw() {  # what window 1's tab renders right now, honouring active/inactive
   local fmt=window-status-format
@@ -112,20 +114,20 @@ echo "== renders in BOTH formats (the bug that shipped twice) =="
 # Switch windows FIRST, then set the state: "done" clears on both arrive and
 # leave, so setting it before a switch means the clear rules correctly wipe it
 # before anything is drawn. Position, then set, then read.
-for st in running question plan shells done; do
+for st in running question plan error shells loop done; do
   eval "g=\$GLYPH_$st"
   leave1; set_state "$st"; contains "$st renders on inactive tab" "$(draw)" "$g"
   enter1; set_state "$st"; contains "$st renders on ACTIVE tab"   "$(draw)" "$g"
   clear_state
 done
 clear_state; leave1
-for st in running question plan shells done; do
+for st in running question plan error shells loop done; do
   eval "g=\$GLYPH_$st"
   not_contains "idle shows no $st glyph" "$(draw)" "$g"
 done
 
 echo "== clearing rules =="
-for st in running question plan shells; do
+for st in running question plan error shells loop; do
   set_state "$st"; enter1; is "$st survives arriving" "$(state)" "$st"
   leave1;                  is "$st survives leaving"  "$(state)" "$st"
   clear_state
@@ -252,6 +254,53 @@ is "plan survives arriving" "$("${TM[@]}" display-message -p -t "$PP" '#{@claude
 is "plan survives leaving" "$("${TM[@]}" display-message -p -t "$PP" '#{@claude_pane_status}')" "plan"
 runhook "$PP" end
 contains "hooks.json matches ExitPlanMode" "$(cat "$ROOT/claude-plugin/hooks/hooks.json")" '"ExitPlanMode"'
+
+
+echo "== loops and failures (#19) =="
+LP=$("${TM[@]}" list-panes -t t:w1 -F '#{pane_id}' | head -1)
+hookin() { TMUX="$("${TM[@]}" display-message -p '#{socket_path}'),0,0" TMUX_PANE="$1" \
+           CLAUDE_STATUS_TMUX_BIN="$TMUX_BIN" "$ROOT/bin/claude-status" "$2" >/dev/null 2>&1; }
+runhook "$LP" end
+
+# dynamic loop: ScheduleWakeup arms it, so the turn ending is not "done"
+printf '%s' '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":1200,"prompt":"/drive"}}' | hookin "$LP" loop-arm
+runhook "$LP" stop
+is "a scheduled wakeup makes stop report loop" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "loop"
+printf '%s' '{"tool_name":"ScheduleWakeup","tool_input":{"stop":true}}' | hookin "$LP" loop-arm
+runhook "$LP" stop
+is "stop:true ends the loop, back to done" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "done"
+
+# interval loop / scheduled job: cron jobs wake this same session
+runhook "$LP" end
+printf '%s' '{"tool_name":"CronCreate","tool_input":{"cron":"*/5 * * * *","prompt":"/drive"}}' | hookin "$LP" cron-add
+runhook "$LP" stop
+is "a live cron job makes stop report loop" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "loop"
+printf '%s' '{}' | hookin "$LP" cron-add
+printf '%s' '{}' | hookin "$LP" cron-del
+runhook "$LP" stop
+is "one of two crons deleted still loops" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "loop"
+printf '%s' '{}' | hookin "$LP" cron-del
+runhook "$LP" stop
+is "last cron deleted, back to done" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "done"
+
+# real work still outranks a loop
+printf '%s' '{"tool_input":{}}' | hookin "$LP" loop-arm
+runhook "$LP" agent-start; runhook "$LP" stop
+is "running work outranks the loop badge" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "shells"
+runhook "$LP" agent-stop
+
+# StopFailure must not look like a finished turn
+runhook "$LP" end
+runhook "$LP" failed
+is "StopFailure reports error, not done" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "error"
+runhook "$LP" prompt
+is "retrying clears the error" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_pane_status}')" "running"
+runhook "$LP" start
+is "SessionStart resets loop bookkeeping" "$("${TM[@]}" display-message -p -t "$LP" '#{@claude_crons}')" "0"
+runhook "$LP" end
+for m in ScheduleWakeup CronCreate CronDelete StopFailure; do
+  contains "hooks.json wires $m" "$(cat "$ROOT/claude-plugin/hooks/hooks.json")" "\"$m\""
+done
 
 echo "== safety =="
 env -u TMUX -u TMUX_PANE "$ROOT/bin/claude-status" stop >/dev/null 2>&1

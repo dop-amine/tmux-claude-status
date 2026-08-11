@@ -22,15 +22,15 @@
 #   SessionStart        -> start       : new session                 -> repair this pane
 #   SessionEnd          -> end         : session gone                -> clear this pane
 #
-# States: running | question | plan | shells | done   (unset = idle)
+# States: running | question | plan | error | shells | loop | done  (unset = idle)
 #
 # Exits 0 and does nothing outside tmux, so it's safe to wire unconditionally.
 # Argument validation happens BEFORE that guard, so a typo is caught everywhere.
 
 case "${1:-}" in
-  prompt|clear|ask|plan|busy|stop|done|end|unset|start|agent-start|agent-stop|state) ;;
+  prompt|clear|ask|plan|busy|stop|done|failed|end|unset|start|agent-start|agent-stop|loop-arm|cron-add|cron-del|state) ;;
   *)
-    echo "usage: claude-status {prompt|ask|plan|busy|stop|end|start|agent-start|agent-stop|state}" >&2
+    echo "usage: claude-status {prompt|ask|plan|busy|stop|failed|end|start|agent-start|agent-stop|loop-arm|cron-add|cron-del|state}" >&2
     exit 2
     ;;
 esac
@@ -57,6 +57,35 @@ agents_get() {
   case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
 }
 agents_set() { "$TMUX_BIN" set-option -p -t "$TMUX_PANE" @claude_agents "$1" 2>/dev/null; }
+
+# ------------------------------------------------------------ loop tracking --
+# A looping session is idle between iterations but is NOT done: it re-enqueues
+# its own next turn. Two mechanisms, both of which resume THIS session:
+#   ScheduleWakeup — /loop dynamic mode, called once per iteration
+#   CronCreate     — /loop <interval> and /schedule. Cron jobs are session-only
+#                    and fire while the REPL is idle, so a live job means this
+#                    session wakes itself up again.
+num() { case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
+wake_get()  { num "$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_wake}' 2>/dev/null)"; }
+wake_set()  { "$TMUX_BIN" set-option -p -t "$TMUX_PANE" @claude_wake "$1" 2>/dev/null; }
+crons_get() { num "$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@claude_crons}' 2>/dev/null)"; }
+crons_set() { "$TMUX_BIN" set-option -p -t "$TMUX_PANE" @claude_crons "$1" 2>/dev/null; }
+looping()   { [ "$(wake_get)" -gt 0 ] || [ "$(crons_get)" -gt 0 ]; }
+
+# ScheduleWakeup ends a loop by passing stop:true, so the hook has to read the
+# tool input rather than just the tool name.
+wakeup_is_stop() {
+  payload=$(cat 2>/dev/null || true)
+  [ -n "$payload" ] || return 1
+  if command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$payload" | python3 -c 'import json,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if (d.get("tool_input") or {}).get("stop") is True else 1)' 2>/dev/null && return 0
+    return 1
+  fi
+  printf '%s' "$payload" | grep -Eq '"stop"[[:space:]]*:[[:space:]]*true'
+}
 
 # --------------------------------------------------------- background shells --
 # Direct zsh/bash/sh children of THIS pane's claude process, minus this hook's
@@ -97,11 +126,13 @@ still_working() {
 #   question (needs you) > done (ready to read) > running > shells
 rank() {
   case "$1" in
-    question) echo 5 ;;
-    plan)     echo 4 ;;
-    done)     echo 3 ;;
-    running)  echo 2 ;;
-    shells)   echo 1 ;;
+    question) echo 7 ;;
+    error)    echo 6 ;;
+    plan)     echo 5 ;;
+    done)     echo 4 ;;
+    running)  echo 3 ;;
+    shells)   echo 2 ;;
+    loop)     echo 1 ;;
     *)        echo 0 ;;
   esac
 }
@@ -161,10 +192,30 @@ case "$1" in
     # not the same as having read what landed in it.
     if still_working; then
       pane_set shells
+    elif looping; then
+      # Idle between iterations, but the session re-enqueues itself. Reporting
+      # "done" here is the whole bug: nothing is ready and nothing needs you.
+      pane_set loop
     else
       pane_set done
       ack_clear          # a fresh answer un-acknowledges the window
     fi
+    ;;
+  failed)
+    # StopFailure fires INSTEAD of Stop when an API error ended the turn. There
+    # is no answer to read, so this must not look like done.
+    pane_set error
+    ack_clear
+    ;;
+  loop-arm)
+    if wakeup_is_stop; then wake_set 0; else wake_set 1; fi
+    ;;
+  cron-add)
+    crons_set $(( $(crons_get) + 1 ))
+    ;;
+  cron-del)
+    n=$(crons_get); [ "$n" -gt 0 ] && n=$((n - 1))
+    crons_set "$n"
     ;;
   agent-start)
     agents_set $(( $(agents_get) + 1 ))
@@ -183,11 +234,11 @@ case "$1" in
     # A new session owns this pane. Clear whatever the previous one left behind
     # after an unclean exit — and only this pane, so a sibling Claude keeps its.
     pane_unset
-    agents_set 0
+    agents_set 0; wake_set 0; crons_set 0
     ;;
   end|unset)
     pane_unset
-    agents_set 0
+    agents_set 0; wake_set 0; crons_set 0
     ;;
   state)
     pane_get; exit 0
