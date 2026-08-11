@@ -32,14 +32,18 @@ esc() { printf '%s' "${1//,/#,}"; }
 RUNNING="$(esc "$(opt @claude_badge_running  ' 🔄 ')")"
 QUESTION="$(esc "$(opt @claude_badge_question ' ❓ ')")"
 PLAN="$(esc "$(opt @claude_badge_plan     ' 📝 ')")"
+ERROR="$(esc "$(opt @claude_badge_error    ' ⚠️ ')")"
+LOOP="$(esc "$(opt @claude_badge_loop     ' 🌀 ')")"
 SHELLS="$(esc "$(opt @claude_badge_shells   ' ⏳ ')")"
 DONE="$(esc "$(opt @claude_badge_done      ' ✅ ')")"
 
 FMT="#{?#{==:#{@claude_status},running},${RUNNING},"
 FMT+="#{?#{==:#{@claude_status},question},${QUESTION},"
+FMT+="#{?#{==:#{@claude_status},error},${ERROR},"
 FMT+="#{?#{==:#{@claude_status},plan},${PLAN},"
 FMT+="#{?#{==:#{@claude_status},shells},${SHELLS},"
-FMT+="#{?#{==:#{@claude_status},done},${DONE},}}}}}"
+FMT+="#{?#{==:#{@claude_status},loop},${LOOP},"
+FMT+="#{?#{==:#{@claude_status},done},${DONE},}}}}}}}"
 tmux set -g @claude_badge_fmt "$FMT"
 
 # --- optional auto-append ---------------------------------------------------

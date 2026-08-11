@@ -211,6 +211,38 @@ fires the instant the approval dialog opens — the same mechanism as
 Approving *or* rejecting completes the tool, so `PostToolUse` retires the state
 the same way it retires a question.
 
+## A looping session is idle, not finished
+
+Between iterations a `/loop` has no shells, no agents, and an ended turn, so
+`stop` reported ✅ — "nothing running, ready to read" — when nothing was ready
+and the session was about to resume itself.
+
+Both loop mechanisms re-enqueue work into **the same session**, so both count:
+
+- **`ScheduleWakeup`** is `/loop` dynamic mode, called once per iteration.
+  Ending a loop is the *same tool* with `stop: true`, so the hook has to read
+  `tool_input` from its stdin rather than matching on the tool name alone.
+- **`CronCreate`** covers `/loop <interval>` and `/schedule`. Cron jobs are
+  session-only and fire while the REPL is idle, so a live job means this session
+  wakes itself. `CronDelete` decrements a counter, since a session can hold
+  several.
+
+Real work still outranks the loop badge: a pane with background shells or agents
+shows ⏳, not 🌀.
+
+## `StopFailure` is not a finished turn
+
+`StopFailure` fires *instead of* `Stop` when an API error ends the turn — rate
+limit, auth failure, billing, overloaded, and so on. Mapping it onto the same
+handler as `Stop` produced ✅, which is a lie in the most annoying direction:
+there is no answer to read and the turn needs retrying. It gets its own ⚠️
+state, cleared by the next prompt.
+
+The event is matchable by error type: `rate_limit`, `overloaded`,
+`authentication_failed`, `oauth_org_not_allowed`, `billing_error`,
+`invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`,
+`unknown`.
+
 ## Background *agents* have no process to find
 
 `bg_shell_count` walks the process tree, which finds background **shells** and

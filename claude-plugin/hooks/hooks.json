@@ -49,6 +49,33 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" plan"
           }
         ]
+      },
+      {
+        "matcher": "ScheduleWakeup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" loop-arm"
+          }
+        ]
+      },
+      {
+        "matcher": "CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" cron-add"
+          }
+        ]
+      },
+      {
+        "matcher": "CronDelete",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" cron-del"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -106,7 +133,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" stop"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claude-status\" failed"
           }
         ]
       }
