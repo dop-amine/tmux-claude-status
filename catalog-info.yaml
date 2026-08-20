@@ -1,0 +1,22 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: tmux-claude-status
+  title: tmux-claude-status
+  description: >-
+    Per-window tmux tab badges for Claude Code sessions — the tab bar shows
+    which session is working, which is blocked on you, which has background
+    shells, and which is ready to read. Ships as both a tmux plugin and a
+    Claude Code plugin.
+  annotations:
+    github.com/project-slug: dop-amine/tmux-claude-status
+    dop-amine.com/tier: '3'
+    dop-amine.com/docs: docs/
+  links:
+    - url: https://dop-amine.github.io/tmux-claude-status/
+      title: Site
+      icon: docs
+spec:
+  type: plugin
+  lifecycle: production
+  owner: dop-amine
