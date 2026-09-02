@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "Rendered once by dop-amine/catalog templates/docs (catalog 07.2); edit freely afterwards.",
+    "This repo declares which rails it is on, so an interactive session opened here gets",
+    "them whether or not this machine installed them at user scope.",
+    "Use the owner/repo shorthand, never a clone URL: matching does not normalise URLs,",
+    "so a git+url subscription to the same repository is a different value and will not resolve.",
+    "Project-scope extraKnownMarketplaces is ignored without workspace trust, including under",
+    "claude -p, so this is a declaration of intent for trusted interactive work — NOT the",
+    "container's mechanism: CLAUDE_CODE_PLUGIN_SEED_DIR plus /etc/claude-code/managed-settings.json,",
+    "in observatory vars/configs/lab/contexts/personal/.",
+    "enabledPlugins alone does not install (since Claude Code 2.1.195): on a machine that never",
+    "ran `claude plugin install`, this file enables nothing and says nothing about it."
+  ],
+  "extraKnownMarketplaces": {
+    "dopamine": {
+      "source": {
+        "source": "github",
+        "repo": "dop-amine/catalog"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "dopamine-core@dopamine": true,
+    "dopamine-workflow@dopamine": true,
+    "dopamine-flightplan@dopamine": true
+  }
+}
